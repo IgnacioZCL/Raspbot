@@ -1,6 +1,7 @@
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const { Player } = require('discord-player');
 const { YoutubeExtractor } = require('discord-player-youtube');
+const { SpotifyExtractor } = require('@discord-player/extractor');
 const fs = require('fs');
 const path = require('path');
 
@@ -65,10 +66,20 @@ const player = new Player(client, {
 });
 
 const youtubeCookies = loadYouTubeCookies();
-const extractorOptions = youtubeCookies ? { cookie: youtubeCookies } : {};
+const youtubeExtractorOptions = youtubeCookies ? { cookie: youtubeCookies } : {};
 
-player.extractors.register(YoutubeExtractor, extractorOptions).catch(err => {
+player.extractors.register(YoutubeExtractor, youtubeExtractorOptions).catch(err => {
   console.error('Failed to register YouTube extractor:', err);
+});
+
+const spotifyExtractorOptions = {};
+if (process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET) {
+  spotifyExtractorOptions.clientId = process.env.SPOTIFY_CLIENT_ID;
+  spotifyExtractorOptions.clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+}
+
+player.extractors.register(SpotifyExtractor, spotifyExtractorOptions).catch(err => {
+  console.error('Failed to register Spotify extractor:', err);
 });
 
 player.events.on('playerStart', (queue, track) => {
@@ -86,7 +97,7 @@ player.events.on('error', (queue, error) => {
   queue.metadata.channel.send('❌ Queue error.');
 });
 
-client.once('ready', () => {
+client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
 

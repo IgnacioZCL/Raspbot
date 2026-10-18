@@ -1,10 +1,10 @@
 # RaspBot
 
-A simple, self-hosted Discord music bot for Raspberry Pi. No subscription services required — it streams audio from YouTube using `discord-player`.
+A simple, self-hosted Discord music bot for Raspberry Pi. No subscription services required — it streams audio from YouTube and Spotify using `discord-player`.
 
 ## Features
 
-- `!play <query>` — search YouTube and play/queue audio
+- `!play <query>` — search YouTube/Spotify and play/queue audio
 - `!pause` — pause or resume playback
 - `!skip` — skip the current song
 - `!queue` — show the current queue
@@ -51,6 +51,15 @@ DISCORD_TOKEN=YOUR_BOT_TOKEN_HERE
 > `.env` is ignored by Git so your token is never published. Keep it only on your Pi.
 
 The optional `config.json` file can still be used for the command prefix (default is `!`).
+
+For Spotify support, also add your Spotify client credentials to `.env` (optional but recommended for playlists/albums):
+
+```env
+SPOTIFY_CLIENT_ID=YOUR_SPOTIFY_CLIENT_ID
+SPOTIFY_CLIENT_SECRET=YOUR_SPOTIFY_CLIENT_SECRET
+```
+
+Create a Spotify app at https://developer.spotify.com/dashboard to get these values.
 
 ### 3. Build and run
 

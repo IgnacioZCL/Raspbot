@@ -1,8 +1,16 @@
 const { QueryType } = require('discord-player');
 
+function isSpotifyUrl(query) {
+  return /^https?:\/\/open\.spotify\.com\//i.test(query);
+}
+
+function queryTypeFor(query) {
+  return isSpotifyUrl(query) ? QueryType.AUTO : QueryType.YOUTUBE_SEARCH;
+}
+
 module.exports = {
   name: 'play',
-  description: 'Search YouTube and play or queue a song',
+  description: 'Search YouTube/Spotify and play or queue a song',
   async execute(message, args, player) {
     const channel = message.member?.voice?.channel;
     if (!channel) {
@@ -14,16 +22,17 @@ module.exports = {
       return message.reply('❌ Give me something to play, e.g. `!play never gonna give you up`');
     }
 
-    await message.channel.send(`🔎 Searching YouTube for: **${query}**`);
+    const sourceLabel = isSpotifyUrl(query) ? 'Spotify' : 'YouTube';
+    await message.channel.send(`🔎 Searching ${sourceLabel} for: **${query}**`);
 
     let result = await player.search(query, {
       requestedBy: message.author,
-      searchEngine: QueryType.YOUTUBE_SEARCH,
+      searchEngine: queryTypeFor(query),
     });
 
-    // Fallback to automatic search if YouTube returns nothing
+    // Fallback to automatic search if the primary source returns nothing
     if (!result || !result.hasTracks()) {
-      console.log('YouTube search returned nothing, trying auto search...');
+      console.log(`${sourceLabel} search returned nothing, trying auto search...`);
       result = await player.search(query, {
         requestedBy: message.author,
         searchEngine: QueryType.AUTO,
@@ -31,7 +40,7 @@ module.exports = {
     }
 
     if (!result || !result.hasTracks()) {
-      return message.reply('❌ No results found on YouTube.');
+      return message.reply(`❌ No results found on ${sourceLabel}.`);
     }
 
     const track = result.tracks[0];
