@@ -1,7 +1,7 @@
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const { Player } = require('discord-player');
 const { YoutubeExtractor } = require('discord-player-youtube');
-const { SpotifyExtractor } = require('@discord-player/extractor');
+const { SpotifyExtractor, Internal } = require('@discord-player/extractor');
 const fs = require('fs');
 const path = require('path');
 
@@ -82,7 +82,20 @@ if (hasSpotifyCredentials) {
   console.log('Spotify credentials not found; Spotify extractor will use anonymous mode (rate-limited).');
 }
 
-player.extractors.register(SpotifyExtractor, spotifyExtractorOptions).catch(err => {
+player.extractors.register(SpotifyExtractor, spotifyExtractorOptions).then(async () => {
+  const api = new Internal.SpotifyAPI({
+    clientId: process.env.SPOTIFY_CLIENT_ID || null,
+    clientSecret: process.env.SPOTIFY_CLIENT_SECRET || null,
+  });
+  const token = await api.requestToken().catch(err => ({ error: err }));
+  if (token && token.error) {
+    console.error('Spotify token request failed:', token.error);
+  } else if (token) {
+    console.log('Spotify token acquired successfully');
+  } else {
+    console.error('Spotify token request returned null (check credentials or network)');
+  }
+}).catch(err => {
   console.error('Failed to register Spotify extractor:', err);
 });
 
