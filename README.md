@@ -11,7 +11,11 @@ A simple, self-hosted Discord music bot for Raspberry Pi. No subscription servic
 
 ## Running locally
 
+Create a `.env` file from the example and add your token:
+
 ```bash
+cp .env.example .env
+# edit .env and set DISCORD_TOKEN
 npm install
 npm start
 ```
@@ -33,16 +37,20 @@ Log out and back in for the group change to take effect.
 
 ### 2. Configure the bot
 
-Make sure `config.json` exists in the project root with your Discord bot token and prefix:
+Copy the example environment file and add your Discord bot token:
 
-```json
-{
-  "prefix": "!",
-  "token": "YOUR_BOT_TOKEN_HERE"
-}
+```bash
+cp .env.example .env
+nano .env
 ```
 
-> `config.json` is ignored by Git and Docker so your token never leaves your Pi.
+```env
+DISCORD_TOKEN=YOUR_BOT_TOKEN_HERE
+```
+
+> `.env` is ignored by Git so your token is never published. Keep it only on your Pi.
+
+The optional `config.json` file can still be used for the command prefix (default is `!`).
 
 ### 3. Build and run
 

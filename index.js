@@ -3,7 +3,19 @@ const { Player } = require('discord-player');
 const { YoutubeExtractor } = require('discord-player-youtube');
 const fs = require('fs');
 const path = require('path');
+
+// Load .env file if present (useful for local development; Docker uses env_file)
+if (fs.existsSync(path.join(__dirname, '.env'))) {
+  require('dotenv').config();
+}
+
 const config = require('./config.json');
+
+const DISCORD_TOKEN = process.env.DISCORD_TOKEN || config.token;
+if (!DISCORD_TOKEN) {
+  console.error('Error: DISCORD_TOKEN is not set. Provide it via environment variable or config.json.');
+  process.exit(1);
+}
 
 function loadYouTubeCookies() {
   // If you ever need YouTube cookies, put them in a file named yt-cookies.txt
@@ -85,4 +97,4 @@ client.on('messageCreate', async message => {
   }
 });
 
-client.login(config.token);
+client.login(DISCORD_TOKEN);

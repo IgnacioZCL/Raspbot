@@ -5,12 +5,10 @@ services:
       dockerfile: Dockerfile
     container_name: raspbot
     restart: unless-stopped
-    # Mount the local config.json into the container so the token stays outside the image
+    env_file:
+      - .env
     volumes:
-      - ./config.json:/app/config.json:ro
-      # Uncomment only if YouTube requires cookies. Never commit this file.
+      # Optional: mount cookies if YouTube requires them. Never commit this file.
       # - ./yt-cookies.txt:/app/yt-cookies.txt:ro
     environment:
       - NODE_ENV=production
-      # Uncomment only if YouTube requires cookies. Prefer the file mount above.
-      # - YOUTUBE_COOKIES=
