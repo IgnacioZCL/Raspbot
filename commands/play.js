@@ -1,11 +1,23 @@
 const { QueryType } = require('discord-player');
 
+const SPOTIFY_TRACK_RE = /^https?:\/\/open\.spotify\.com\/(?:intl-[a-z]{2}\/)?track\//i;
+const SPOTIFY_PLAYLIST_RE = /^https?:\/\/open\.spotify\.com\/(?:intl-[a-z]{2}\/)?playlist\//i;
+const SPOTIFY_ALBUM_RE = /^https?:\/\/open\.spotify\.com\/(?:intl-[a-z]{2}\/)?album\//i;
+const SPOTIFY_URL_RE = /^https?:\/\/open\.spotify\.com\//i;
+
 function isSpotifyUrl(query) {
-  return /^https?:\/\/open\.spotify\.com\//i.test(query);
+  return SPOTIFY_URL_RE.test(query);
+}
+
+function spotifyQueryType(query) {
+  if (SPOTIFY_TRACK_RE.test(query)) return QueryType.SPOTIFY_SONG;
+  if (SPOTIFY_PLAYLIST_RE.test(query)) return QueryType.SPOTIFY_PLAYLIST;
+  if (SPOTIFY_ALBUM_RE.test(query)) return QueryType.SPOTIFY_ALBUM;
+  return QueryType.SPOTIFY_SEARCH;
 }
 
 function queryTypeFor(query) {
-  return isSpotifyUrl(query) ? QueryType.AUTO : QueryType.YOUTUBE_SEARCH;
+  return isSpotifyUrl(query) ? spotifyQueryType(query) : QueryType.YOUTUBE_SEARCH;
 }
 
 module.exports = {
@@ -25,18 +37,29 @@ module.exports = {
     const sourceLabel = isSpotifyUrl(query) ? 'Spotify' : 'YouTube';
     await message.channel.send(`🔎 Searching ${sourceLabel} for: **${query}**`);
 
-    let result = await player.search(query, {
-      requestedBy: message.author,
-      searchEngine: queryTypeFor(query),
-    });
+    let result;
+    try {
+      result = await player.search(query, {
+        requestedBy: message.author,
+        searchEngine: queryTypeFor(query),
+      });
+    } catch (error) {
+      console.error(`Error searching ${sourceLabel}:`, error);
+      return message.reply(`❌ Error searching ${sourceLabel}: ${error.message || error}`);
+    }
 
     // Fallback to automatic search if the primary source returns nothing
     if (!result || !result.hasTracks()) {
       console.log(`${sourceLabel} search returned nothing, trying auto search...`);
-      result = await player.search(query, {
-        requestedBy: message.author,
-        searchEngine: QueryType.AUTO,
-      });
+      try {
+        result = await player.search(query, {
+          requestedBy: message.author,
+          searchEngine: QueryType.AUTO,
+        });
+      } catch (error) {
+        console.error('Error during auto search fallback:', error);
+        return message.reply(`❌ Error during fallback search: ${error.message || error}`);
+      }
     }
 
     if (!result || !result.hasTracks()) {

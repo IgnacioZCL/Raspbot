@@ -73,9 +73,13 @@ player.extractors.register(YoutubeExtractor, youtubeExtractorOptions).catch(err 
 });
 
 const spotifyExtractorOptions = {};
-if (process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET) {
+const hasSpotifyCredentials = process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET;
+if (hasSpotifyCredentials) {
   spotifyExtractorOptions.clientId = process.env.SPOTIFY_CLIENT_ID;
   spotifyExtractorOptions.clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+  console.log('Spotify credentials loaded, registering Spotify extractor...');
+} else {
+  console.log('Spotify credentials not found; Spotify extractor will use anonymous mode (rate-limited).');
 }
 
 player.extractors.register(SpotifyExtractor, spotifyExtractorOptions).catch(err => {
