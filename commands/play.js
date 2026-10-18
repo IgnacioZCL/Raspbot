@@ -1,5 +1,5 @@
-const { QueryType } = require('discord-player');
-const { parseSpotifyUrl } = require('discord-player-spotify');
+const { QueryType, SearchResult } = require('discord-player');
+const { parseSpotifyUrl, SpotifyExtractor } = require('discord-player-spotify');
 
 function isSpotifyUrl(query) {
   try {
@@ -42,14 +42,38 @@ module.exports = {
     }
 
     const sourceLabel = isSpotifyUrl(query) ? 'Spotify' : 'YouTube';
+    const searchEngine = queryTypeFor(query);
+    console.log(`[play] query: ${query}, source: ${sourceLabel}, engine: ${searchEngine}`);
     await message.channel.send(`🔎 Searching ${sourceLabel} for: **${query}**`);
 
     let result;
     try {
-      result = await player.search(query, {
-        requestedBy: message.author,
-        searchEngine: queryTypeFor(query),
-      });
+      if (isSpotifyUrl(query)) {
+        // The YouTube extractor registers first and incorrectly validates Spotify URLs,
+        // so we bypass player.search() and use the Spotify extractor directly.
+        const spotifyExtractor = player.extractors.get(SpotifyExtractor.identifier);
+        if (!spotifyExtractor) {
+          throw new Error('Spotify extractor is not registered');
+        }
+        const info = await spotifyExtractor.handle(query, {
+          type: searchEngine,
+          requestedBy: message.author,
+        });
+        result = new SearchResult(player, {
+          query,
+          queryType: searchEngine,
+          tracks: info.tracks || [],
+          playlist: info.playlist || null,
+          extractor: spotifyExtractor,
+          requestedBy: message.author,
+        });
+      } else {
+        result = await player.search(query, {
+          requestedBy: message.author,
+          searchEngine,
+        });
+      }
+      console.log('[play] search result hasTracks:', result ? result.hasTracks() : 'no result');
     } catch (error) {
       console.error(`Error searching ${sourceLabel}:`, error);
       return message.reply(`❌ Error searching ${sourceLabel}: ${error.message || error}`);
@@ -63,6 +87,7 @@ module.exports = {
           requestedBy: message.author,
           searchEngine: QueryType.AUTO,
         });
+        console.log('[play] auto fallback result hasTracks:', result ? result.hasTracks() : 'no result');
       } catch (error) {
         console.error('Error during auto search fallback:', error);
         return message.reply(`❌ Error during fallback search: ${error.message || error}`);
