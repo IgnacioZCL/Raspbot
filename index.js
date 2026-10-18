@@ -9,7 +9,17 @@ if (fs.existsSync(path.join(__dirname, '.env'))) {
   require('dotenv').config();
 }
 
-const config = require('./config.json');
+// config.json is optional; fallback values are used if it is missing.
+let config = { prefix: '!' };
+try {
+  config = require('./config.json');
+} catch (error) {
+  if (error.code !== 'MODULE_NOT_FOUND') {
+    console.error('Error loading config.json:', error);
+    process.exit(1);
+  }
+  console.log('No config.json found, using default prefix: !');
+}
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN || config.token;
 if (!DISCORD_TOKEN) {
