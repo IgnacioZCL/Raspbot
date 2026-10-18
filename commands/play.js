@@ -1,19 +1,26 @@
 const { QueryType } = require('discord-player');
-
-const SPOTIFY_TRACK_RE = /^https?:\/\/open\.spotify\.com\/(?:intl-[a-z]{2}\/)?track\//i;
-const SPOTIFY_PLAYLIST_RE = /^https?:\/\/open\.spotify\.com\/(?:intl-[a-z]{2}\/)?playlist\//i;
-const SPOTIFY_ALBUM_RE = /^https?:\/\/open\.spotify\.com\/(?:intl-[a-z]{2}\/)?album\//i;
-const SPOTIFY_URL_RE = /^https?:\/\/open\.spotify\.com\//i;
+const { parseSpotifyUrl } = require('discord-player-spotify');
 
 function isSpotifyUrl(query) {
-  return SPOTIFY_URL_RE.test(query);
+  try {
+    return parseSpotifyUrl(query).id.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 function spotifyQueryType(query) {
-  if (SPOTIFY_TRACK_RE.test(query)) return QueryType.SPOTIFY_SONG;
-  if (SPOTIFY_PLAYLIST_RE.test(query)) return QueryType.SPOTIFY_PLAYLIST;
-  if (SPOTIFY_ALBUM_RE.test(query)) return QueryType.SPOTIFY_ALBUM;
-  return QueryType.SPOTIFY_SEARCH;
+  try {
+    const { queryType } = parseSpotifyUrl(query);
+    switch (queryType) {
+      case 'track': return QueryType.SPOTIFY_SONG;
+      case 'playlist': return QueryType.SPOTIFY_PLAYLIST;
+      case 'album': return QueryType.SPOTIFY_ALBUM;
+      default: return QueryType.SPOTIFY_SEARCH;
+    }
+  } catch {
+    return QueryType.SPOTIFY_SEARCH;
+  }
 }
 
 function queryTypeFor(query) {
