@@ -134,7 +134,7 @@ client.on("messageCreate", async (message) => {
   if (!command) return;
 
   try {
-    await command.execute(message, args, player);
+    await command.execute(message, args, player, PREFIX);
   } catch (error) {
     console.error(error);
     await message.reply("❌ There was an error executing that command.");
