@@ -11,7 +11,7 @@ if (fs.existsSync(path.join(__dirname, ".env"))) {
 }
 
 // config.json is optional; fallback values are used if it is missing.
-let config = { prefix: "/" };
+let config = { prefix: "!" };
 try {
   config = require("./config.json");
 } catch (error) {
@@ -21,6 +21,10 @@ try {
   }
   console.log("No config.json found, using default prefix: !");
 }
+
+const DEBUG = process.env.DEBUG === "TRUE";
+const PREFIX = DEBUG ? "#" : (process.env.PREFIX || config.prefix || "!");
+console.log(`DEBUG=${DEBUG ? "TRUE" : "FALSE"}, using prefix: ${PREFIX}`);
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN || config.token;
 if (!DISCORD_TOKEN) {
@@ -121,9 +125,9 @@ client.once("clientReady", () => {
 });
 
 client.on("messageCreate", async (message) => {
-  if (message.author.bot || !message.content.startsWith(config.prefix)) return;
+  if (message.author.bot || !message.content.startsWith(PREFIX)) return;
 
-  const args = message.content.slice(config.prefix.length).trim().split(/ +/);
+  const args = message.content.slice(PREFIX.length).trim().split(/ +/);
   const commandName = args.shift().toLowerCase();
 
   const command = client.commands.get(commandName);
