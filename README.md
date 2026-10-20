@@ -15,6 +15,9 @@ A simple, self-hosted Discord music bot for Raspberry Pi. No subscription servic
 - `!claim` — claim $1000 every hour
 - `!history [limit]` — show your recent transactions
 
+### Fun
+- `!dice [faces]` — roll a die with the given number of faces (default 6)
+
 ### Games
 - `!blackjack <bet>` — play blackjack (min bet $100, split allowed)
 
