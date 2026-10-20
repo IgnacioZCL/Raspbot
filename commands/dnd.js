@@ -10,6 +10,7 @@ const {
   removeInventoryItem, adjustHp, addXp, addSpell, castSpell, restCharacter,
   logRoll,
 } = require('../lib/dnd-characters');
+const db = require('../lib/db');
 
 const pendingCreations = new Map();
 const DND_CHANNEL_NAME = 'dnd-kirk';
@@ -25,7 +26,13 @@ function isDndChannel(message) {
 
 function raceListText() {
   return Object.entries(RACES)
-    .map(([key, race]) => `- \`${key}\`: ${race.name}`)
+    .map(([key, race]) => {
+      const mods = Object.entries(race.modifiers || {})
+        .map(([stat, mod]) => `${stat.toUpperCase()} ${mod > 0 ? '+' : ''}${mod}`)
+        .join(', ');
+      const bonus = race.freeBonus ? `, choose any +2` : '';
+      return `- \`${key}\`: **${race.name}** — ${mods || 'No modifiers'}${bonus}`;
+    })
     .join('\n');
 }
 
@@ -63,12 +70,8 @@ async function showHelp(message) {
     let text = `🛡️ **Character creation in progress: ${session.name}**\n`;
 
     switch (session.step) {
-      case 'choose-method':
-        text += 'You need to choose a stat generation method.\n';
-        text += 'Reply: `!dnd assign 4d6` or `!dnd assign pointbuy`.';
-        break;
       case 'free-bonus':
-        text += `You chose ${session.method === '4d6-drop' ? '4d6 drop lowest' : 'point-buy 25'}.\n`;
+        text += `You are using ${session.method === '4d6-drop' ? '4d6 drop lowest' : 'point-buy 25'}.\n`;
         text += `As a ${RACES[session.raceKey].name}, pick one ability for your +2 racial bonus.\n`;
         text += `Reply: \`!dnd assign ${ABILITY_NAMES.join('|')}\`.`;
         break;
@@ -76,12 +79,14 @@ async function showHelp(message) {
         text += 'Assign your rolled stats to abilities.\n';
         text += `Rolled values: **${session.rolledStats.join(', ')}**\n`;
         text += 'Use each value exactly once. Example:\n';
-        text += '\`!dnd assign str=15 dex=12 con=14 int=10 wis=13 cha=8\`';
+        text += '\`!dnd assign str=15 dex=12 con=14 int=10 wis=13 cha=8\`\n\n';
+        text += 'Not happy? Switch to point-buy 25 with \`!dnd assign pointbuy\`, or reroll with \`!dnd assign reroll\`.';
         break;
       case 'assign-pointbuy':
         text += 'Assign your stats with point-buy 25 (each score 8-18).\n';
         text += 'Example: \`!dnd assign str=14 dex=12 con=13 int=10 wis=12 cha=8\`\n';
-        text += 'Cost table: 8=0, 9=1, 10=2, 11=3, 12=4, 13=5, 14=6, 15=8, 16=10, 17=13, 18=16.';
+        text += 'Cost table: 8=0, 9=1, 10=2, 11=3, 12=4, 13=5, 14=6, 15=8, 16=10, 17=13, 18=16.\n\n';
+        text += 'Want to go back to rolling? Use \`!dnd assign reroll\`.';
         break;
       default:
         text += 'Unknown creation step. Try `!dnd help` again or restart with `!dnd create`.';
@@ -143,17 +148,23 @@ async function startCreate(message, args) {
   }
 
   const key = `${message.guild.id}-${message.author.id}`;
+  const roll = roll4d6DropLowest();
+
   pendingCreations.set(key, {
     name,
     raceKey: raceKey.toLowerCase(),
     classKey: classKey.toLowerCase(),
-    step: 'choose-method',
+    method: '4d6-drop',
+    rolledStats: roll.stats,
+    rolls: roll.rolls,
+    step: 'free-bonus',
   });
 
   await message.channel.send(
     `🛡️ Creating **${name}** the ${RACES[raceKey.toLowerCase()].name} ${CLASSES[classKey.toLowerCase()].name}.\n` +
-    'Choose stat generation: reply `4d6` (roll) or `pointbuy` (25 points).'
+    'Here are your rolled stats.'
   );
+  await proceedToFreeBonusOrAssign(message, pendingCreations.get(key));
 }
 
 async function handleCreateStep(message, args) {
@@ -162,26 +173,6 @@ async function handleCreateStep(message, args) {
   if (!session) return;
 
   const input = args[0]?.toLowerCase();
-
-  if (session.step === 'choose-method') {
-    if (input === '4d6' || input === '4d6-drop') {
-      session.method = '4d6-drop';
-      const roll = roll4d6DropLowest();
-      session.rolledStats = roll.stats;
-      session.rolls = roll.rolls;
-      await proceedToFreeBonusOrAssign(message, session);
-      return;
-    }
-
-    if (input === 'pointbuy' || input === 'point-buy') {
-      session.method = 'point-buy-25';
-      await proceedToFreeBonusOrAssign(message, session);
-      return;
-    }
-
-    await message.reply('❌ Reply `4d6` or `pointbuy`.');
-    return;
-  }
 
   if (session.step === 'free-bonus') {
     const stat = input;
@@ -195,14 +186,30 @@ async function handleCreateStep(message, args) {
   }
 
   if (session.step === 'assign-4d6' || session.step === 'assign-pointbuy') {
+    // Allow the player to switch to point-buy if they don't like the rolled stats.
+    if (input === 'pointbuy' || input === 'point-buy') {
+      if (session.method === '4d6-drop') {
+        session.method = 'point-buy-25';
+        delete session.rolledStats;
+        delete session.rolls;
+        pendingCreations.set(key, session);
+        await promptAssign(message, session);
+        return;
+      }
+      await message.reply('❌ You are already using point-buy.');
+      return;
+    }
+
     const assignments = parseStatAssignments(args);
     const missing = ABILITY_NAMES.filter((a) => !(a in assignments) || Number.isNaN(assignments[a]));
     if (missing.length > 0) {
       return message.reply(`❌ Missing or invalid stats: ${missing.join(', ')}`);
     }
 
-    if (session.freeBonusStat) {
-      assignments._freeBonus = session.freeBonusStat;
+    // Validate range 3-18 before racial modifiers.
+    const outOfRange = ABILITY_NAMES.filter((a) => assignments[a] < 3 || assignments[a] > 18);
+    if (outOfRange.length > 0) {
+      return message.reply(`❌ Stats must be between 3 and 18 before racial modifiers: ${outOfRange.join(', ')}.`);
     }
 
     if (session.method === '4d6-drop') {
@@ -216,7 +223,29 @@ async function handleCreateStep(message, args) {
       }
     }
 
+    if (session.method === 'point-buy-25') {
+      const validation = validatePointBuy25(assignments);
+      if (!validation.valid) {
+        return message.reply(`❌ ${validation.error}`);
+      }
+    }
+
+    if (session.freeBonusStat) {
+      assignments._freeBonus = session.freeBonusStat;
+    }
+
+    // Show what will be submitted (with racial adjustments preview).
+    const previewStats = { ...assignments };
+    const race = RACES[session.raceKey];
+    for (const [stat, mod] of Object.entries(race.modifiers || {})) {
+      previewStats[stat] = (previewStats[stat] || 0) + mod;
+    }
+    if (assignments._freeBonus) {
+      previewStats[assignments._freeBonus] += 2;
+    }
+
     try {
+      console.log(`[dnd assign] user=${message.author.id} method=${session.method} assignments=${JSON.stringify(assignments)}`);
       const character = createCharacter(
         message.guild.id,
         message.author.id,
@@ -230,7 +259,9 @@ async function handleCreateStep(message, args) {
       pendingCreations.delete(key);
       await message.channel.send(formatFullSheet(character));
     } catch (error) {
-      await message.reply(`❌ ${error.message}`);
+      // If creation failed, keep the session alive so the user can retry.
+      pendingCreations.set(key, session);
+      await message.reply(`❌ ${error.message}\nReceived stats: ${ABILITY_NAMES.map((a) => `${a}=${assignments[a]}`).join(' ')}`);
     }
   }
 }
@@ -263,7 +294,8 @@ async function promptAssign(message, session) {
     await message.channel.send(
       `🎲 Rolled stats:\n${rollLines}\n\n` +
       'Assign each value to your abilities with:\n' +
-      '`!dnd assign str=15 dex=12 con=14 int=10 wis=13 cha=8`'
+      '`!dnd assign str=15 dex=12 con=14 int=10 wis=13 cha=8`\n\n' +
+      'Not happy with these? Switch to point-buy 25 with `!dnd assign pointbuy`. (lowest of 7 sets dropped)'
     );
   } else {
     session.step = 'assign-pointbuy';
@@ -271,7 +303,8 @@ async function promptAssign(message, session) {
     await message.channel.send(
       '✏️ Point-buy 25. Assign stats (8-18) using:\n' +
       '`!dnd assign str=14 dex=12 con=13 int=10 wis=12 cha=8`\n' +
-      'Cost table: 8=0, 9=1, 10=2, 11=3, 12=4, 13=5, 14=6, 15=8, 16=10, 17=13, 18=16.'
+      'Cost table: 8=0, 9=1, 10=2, 11=3, 12=4, 13=5, 14=6, 15=8, 16=10, 17=13, 18=16.\n\n' +
+      'Want to go back to rolling? Restart with `!dnd create <name> <race> <class>`.'
     );
   }
 }
@@ -632,20 +665,21 @@ async function adminAddSpell(message, args) {
 }
 
 async function adminReset(message) {
-  if (!isAdmin(message)) {
-    return message.reply('❌ Only server administrators can use this command.');
-  }
-
-  // Delete the active character of the command author or mentioned user.
   const mentioned = message.mentions.users.first();
   const targetUser = mentioned || message.author;
+
+  // Anyone can retire their own character; only admins can retire someone else's.
+  if (targetUser.id !== message.author.id && !isAdmin(message)) {
+    return message.reply('❌ Only server administrators can retire another player\'s character.');
+  }
+
   const character = getCharacter(message.guild.id, targetUser.id);
   if (!character) {
     return message.reply(`❌ ${targetUser} has no active character.`);
   }
 
   db.prepare("UPDATE dnd_characters SET status = 'retired' WHERE id = ?").run(character.id);
-  await message.channel.send(`🗑️ ${character.name} has been retired. ${targetUser} can create a new character.`);
+  await message.channel.send(`🗑️ **${character.name}** has been retired. ${targetUser} can create a new character.`);
 }
 
 module.exports = {
