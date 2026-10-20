@@ -4,10 +4,19 @@ A simple, self-hosted Discord music bot for Raspberry Pi. No subscription servic
 
 ## Features
 
+### Music
 - `!play <query>` — search YouTube/Spotify and play/queue audio
 - `!pause` — pause or resume playback
 - `!skip` — skip the current song
 - `!queue` — show the current queue
+
+### Economy
+- `!balance` — check your wallet and next `!claim` availability
+- `!claim` — claim $1000 every hour
+- `!history [limit]` — show your recent transactions
+
+### Games
+- `!blackjack <bet>` — play blackjack (min bet $100, split allowed)
 
 ## Running locally
 
@@ -49,6 +58,7 @@ DISCORD_TOKEN=YOUR_BOT_TOKEN_HERE
 ```
 
 > `.env` is ignored by Git so your token is never published. Keep it only on your Pi.
+> The economy database is stored in `data/economy.db` (also ignored by Git) and mounted as a Docker volume so it persists across container rebuilds.
 
 The optional `config.json` file can still be used for the command prefix (default is `!`).
 

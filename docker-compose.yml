@@ -7,8 +7,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    # Optional: mount cookies if YouTube requires them. Never commit this file.
-    # volumes:
-    #   - ./yt-cookies.txt:/app/yt-cookies.txt:ro
+    volumes:
+      # Persist SQLite economy database across container rebuilds/restarts.
+      - ./data:/app/data
+      # Optional: mount cookies if YouTube requires them. Never commit this file.
+      # - ./yt-cookies.txt:/app/yt-cookies.txt:ro
     environment:
       - NODE_ENV=production
