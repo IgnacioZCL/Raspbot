@@ -29,7 +29,11 @@ RUN rm -f package-lock.json
 
 # Create a non-root user to run the bot
 RUN groupadd -r raspbot && useradd -r -g raspbot raspbot && \
+    mkdir -p /app/data && \
     chown -R raspbot:raspbot /app
 USER raspbot
+
+# Ensure the data directory exists at runtime for SQLite and is writable.
+ENV ECONOMY_DB_PATH=/app/data/economy.db
 
 CMD ["node", "index.js"]

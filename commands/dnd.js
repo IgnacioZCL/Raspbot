@@ -1,0 +1,667 @@
+const {
+  RACES, CLASSES, SKILLS, ABILITY_NAMES, ABILITY_LABELS, ALIGNMENTS,
+} = require('../lib/dnd-data');
+const {
+  abilityModifier, formatModifier, d20Roll, formatD20Roll,
+  roll4d6DropLowest, validatePointBuy25,
+} = require('../lib/dnd-rules');
+const {
+  getCharacter, createCharacter, formatFullSheet, addInventoryItem,
+  removeInventoryItem, adjustHp, addXp, addSpell, castSpell, restCharacter,
+  logRoll,
+} = require('../lib/dnd-characters');
+
+const pendingCreations = new Map();
+
+function raceListText() {
+  return Object.entries(RACES)
+    .map(([key, race]) => `- \`${key}\`: ${race.name}`)
+    .join('\n');
+}
+
+function classListText() {
+  return Object.entries(CLASSES)
+    .map(([key, cls]) => `- \`${key}\`: ${cls.name}`)
+    .join('\n');
+}
+
+function alignmentListText() {
+  return ALIGNMENTS.map((a) => `- \`${a.toLowerCase().replace(/ /g, '-')}\``).join('\n');
+}
+
+function parseStatAssignments(args) {
+  const assignments = {};
+  for (const arg of args) {
+    const [stat, value] = arg.split('=');
+    if (!stat || value === undefined) continue;
+    const key = stat.toLowerCase();
+    if (!ABILITY_NAMES.includes(key)) continue;
+    assignments[key] = parseInt(value, 10);
+  }
+  return assignments;
+}
+
+function isAdmin(message) {
+  return message.member?.permissions?.has('Administrator') || false;
+}
+
+async function startCreate(message, args) {
+  const [name, raceKey, classKey] = args;
+
+  if (!name || !raceKey || !classKey) {
+    return message.reply(
+      '❌ Usage: `!dnd create <name> <race> <class>`\n' +
+      'Use `!dnd races` and `!dnd classes` to see options.'
+    );
+  }
+
+  const existing = getCharacter(message.guild.id, message.author.id);
+  if (existing) {
+    return message.reply('❌ You already have an active character in this server.');
+  }
+
+  if (!RACES[raceKey.toLowerCase()]) {
+    return message.reply(`❌ Unknown race \`${raceKey}\`. Use \`!dnd races\`.`);
+  }
+  if (!CLASSES[classKey.toLowerCase()]) {
+    return message.reply(`❌ Unknown class \`${classKey}\`. Use \`!dnd classes\`.`);
+  }
+
+  const key = `${message.guild.id}-${message.author.id}`;
+  pendingCreations.set(key, {
+    name,
+    raceKey: raceKey.toLowerCase(),
+    classKey: classKey.toLowerCase(),
+    step: 'choose-method',
+  });
+
+  await message.channel.send(
+    `🛡️ Creating **${name}** the ${RACES[raceKey.toLowerCase()].name} ${CLASSES[classKey.toLowerCase()].name}.\n` +
+    'Choose stat generation: reply `4d6` (roll) or `pointbuy` (25 points).'
+  );
+}
+
+async function handleCreateStep(message, args) {
+  const key = `${message.guild.id}-${message.author.id}`;
+  const session = pendingCreations.get(key);
+  if (!session) return;
+
+  const input = args[0]?.toLowerCase();
+
+  if (session.step === 'choose-method') {
+    if (input === '4d6' || input === '4d6-drop') {
+      session.method = '4d6-drop';
+      const roll = roll4d6DropLowest();
+      session.rolledStats = roll.stats;
+      session.rolls = roll.rolls;
+      await proceedToFreeBonusOrAssign(message, session);
+      return;
+    }
+
+    if (input === 'pointbuy' || input === 'point-buy') {
+      session.method = 'point-buy-25';
+      await proceedToFreeBonusOrAssign(message, session);
+      return;
+    }
+
+    await message.reply('❌ Reply `4d6` or `pointbuy`.');
+    return;
+  }
+
+  if (session.step === 'free-bonus') {
+    const stat = input;
+    if (!ABILITY_NAMES.includes(stat)) {
+      return message.reply(`❌ Choose one of: ${ABILITY_NAMES.join(', ')}.`);
+    }
+    session.freeBonusStat = stat;
+    pendingCreations.set(key, session);
+    await promptAssign(message, session);
+    return;
+  }
+
+  if (session.step === 'assign-4d6' || session.step === 'assign-pointbuy') {
+    const assignments = parseStatAssignments(args);
+    const missing = ABILITY_NAMES.filter((a) => !(a in assignments) || Number.isNaN(assignments[a]));
+    if (missing.length > 0) {
+      return message.reply(`❌ Missing or invalid stats: ${missing.join(', ')}`);
+    }
+
+    if (session.freeBonusStat) {
+      assignments._freeBonus = session.freeBonusStat;
+    }
+
+    if (session.method === '4d6-drop') {
+      const sortedRolled = [...session.rolledStats].sort((a, b) => a - b);
+      const sortedAssigned = ABILITY_NAMES.map((a) => assignments[a]).sort((a, b) => a - b);
+      const same = sortedRolled.every((v, i) => v === sortedAssigned[i]);
+      if (!same) {
+        return message.reply(
+          `❌ Assigned values must exactly match the rolled stats: ${session.rolledStats.join(', ')}.`
+        );
+      }
+    }
+
+    try {
+      const character = createCharacter(
+        message.guild.id,
+        message.author.id,
+        session.name,
+        session.raceKey,
+        session.classKey,
+        session.method,
+        assignments,
+        'True Neutral'
+      );
+      pendingCreations.delete(key);
+      await message.channel.send(formatFullSheet(character));
+    } catch (error) {
+      await message.reply(`❌ ${error.message}`);
+    }
+  }
+}
+
+async function proceedToFreeBonusOrAssign(message, session) {
+  const key = `${message.guild.id}-${message.author.id}`;
+  const race = RACES[session.raceKey];
+  if (race?.freeBonus) {
+    session.step = 'free-bonus';
+    pendingCreations.set(key, session);
+    await message.channel.send(
+      `🧬 As a ${race.name}, choose one ability to receive a +2 racial bonus:\n` +
+      `Reply with one of: ${ABILITY_NAMES.join(', ')}.`
+    );
+    return;
+  }
+  await promptAssign(message, session);
+}
+
+async function promptAssign(message, session) {
+  const key = `${message.guild.id}-${message.author.id}`;
+  if (session.method === '4d6-drop') {
+    session.step = 'assign-4d6';
+    pendingCreations.set(key, session);
+
+    const rollLines = session.rolls
+      .map((r, i) => `  Stat ${i + 1}: [${r.join(', ')}] → **${session.rolledStats[i]}**`)
+      .join('\n');
+
+    await message.channel.send(
+      `🎲 Rolled stats:\n${rollLines}\n\n` +
+      'Assign each value to your abilities with:\n' +
+      '`!dnd assign str=15 dex=12 con=14 int=10 wis=13 cha=8`'
+    );
+  } else {
+    session.step = 'assign-pointbuy';
+    pendingCreations.set(key, session);
+    await message.channel.send(
+      '✏️ Point-buy 25. Assign stats (8-18) using:\n' +
+      '`!dnd assign str=14 dex=12 con=13 int=10 wis=12 cha=8`\n' +
+      'Cost table: 8=0, 9=1, 10=2, 11=3, 12=4, 13=5, 14=6, 15=8, 16=10, 17=13, 18=16.'
+    );
+  }
+}
+
+async function showSheet(message) {
+  const character = getCharacter(message.guild.id, message.author.id);
+  if (!character) {
+    return message.reply('❌ You have no active character. Use `!dnd create` to make one.');
+  }
+  await message.channel.send(formatFullSheet(character));
+}
+
+async function rollAbility(message, args) {
+  const character = getCharacter(message.guild.id, message.author.id);
+  if (!character) {
+    return message.reply('❌ You have no active character.');
+  }
+
+  const stat = args[0]?.toLowerCase();
+  if (!ABILITY_NAMES.includes(stat)) {
+    return message.reply(`❌ Choose one of: ${ABILITY_NAMES.join(', ')}.`);
+  }
+
+  const mod = abilityModifier(character[stat]);
+  const roll = d20Roll(mod, ABILITY_LABELS[stat]);
+  logRoll(message.guild.id, message.author.id, character.id, 'ability', `d20+${mod}`, [roll.die], roll.total);
+  await message.channel.send(`🎲 ${character.name} rolls ${ABILITY_LABELS[stat]}: ${formatD20Roll(roll)}`);
+}
+
+async function rollAttack(message) {
+  const character = getCharacter(message.guild.id, message.author.id);
+  if (!character) {
+    return message.reply('❌ You have no active character.');
+  }
+
+  // Use STR for melee by default. Could later support finesse/ranged choice.
+  const statMod = abilityModifier(character.str);
+  const bonus = character.bab + statMod;
+  const roll = d20Roll(bonus, 'attack');
+  logRoll(message.guild.id, message.author.id, character.id, 'attack', `d20+${bonus}`, [roll.die], roll.total);
+  await message.channel.send(`⚔️ ${character.name} attacks: ${formatD20Roll(roll)} (BAB ${formatModifier(character.bab)} + STR ${formatModifier(statMod)})`);
+}
+
+async function rollSave(message, args) {
+  const character = getCharacter(message.guild.id, message.author.id);
+  if (!character) {
+    return message.reply('❌ You have no active character.');
+  }
+
+  const saveType = args[0]?.toLowerCase();
+  const saveMap = {
+    fort: { field: 'fortitude', stat: 'con', label: 'Fortitude' },
+    fortitude: { field: 'fortitude', stat: 'con', label: 'Fortitude' },
+    ref: { field: 'reflex', stat: 'dex', label: 'Reflex' },
+    reflex: { field: 'reflex', stat: 'dex', label: 'Reflex' },
+    will: { field: 'will', stat: 'wis', label: 'Will' },
+  };
+
+  const mapping = saveMap[saveType];
+  if (!mapping) {
+    return message.reply('❌ Choose `fort`, `ref`, or `will`.');
+  }
+
+  const bonus = character[mapping.field] + abilityModifier(character[mapping.stat]);
+  const roll = d20Roll(bonus, 'save');
+  logRoll(message.guild.id, message.author.id, character.id, 'save', `d20+${bonus}`, [roll.die], roll.total);
+  await message.channel.send(`🛡️ ${character.name} rolls ${mapping.label}: ${formatD20Roll(roll)}`);
+}
+
+async function rollSkill(message, args) {
+  const character = getCharacter(message.guild.id, message.author.id);
+  if (!character) {
+    return message.reply('❌ You have no active character.');
+  }
+
+  const skillName = args.join(' ');
+  if (!skillName) {
+    return message.reply('❌ Usage: `!dnd skill <skill name>`');
+  }
+
+  const skill = Object.keys(SKILLS).find(
+    (s) => s.toLowerCase() === skillName.toLowerCase()
+  );
+  if (!skill) {
+    return message.reply(`❌ Unknown skill. Use \`!dnd skills\` to see the list.`);
+  }
+
+  const keyStat = SKILLS[skill];
+  const { getCharacterSkills } = require('../lib/dnd-characters');
+  const skills = getCharacterSkills(character.id);
+  const ranks = skills.find((s) => s.skill.toLowerCase() === skill.toLowerCase())?.ranks || 0;
+  const statMod = keyStat ? abilityModifier(character[keyStat]) : 0;
+  const bonus = ranks + statMod;
+  const roll = d20Roll(bonus, skill);
+  logRoll(message.guild.id, message.author.id, character.id, 'skill', `d20+${bonus}`, [roll.die], roll.total);
+  await message.channel.send(`🎯 ${character.name} rolls ${skill}: ${formatD20Roll(roll)} (ranks ${ranks}${keyStat ? ` + ${ABILITY_LABELS[keyStat]} ${formatModifier(statMod)}` : ''})`);
+}
+
+async function showSkillsList(message) {
+  const text = Object.entries(SKILLS)
+    .map(([skill, stat]) => `- ${skill}${stat ? ` (${ABILITY_LABELS[stat]})` : ''}`)
+    .join('\n');
+  await message.channel.send(`**Available skills**\n${text}`);
+}
+
+async function adjustHpCommand(message, args) {
+  const character = getCharacter(message.guild.id, message.author.id);
+  if (!character) {
+    return message.reply('❌ You have no active character.');
+  }
+
+  const delta = parseInt(args[0], 10);
+  if (Number.isNaN(delta)) {
+    return message.reply('❌ Usage: `!dnd hp +5` or `!dnd hp -10`.');
+  }
+
+  const newHp = adjustHp(character.id, delta);
+  await message.channel.send(
+    `❤️ ${character.name} HP changed by ${delta >= 0 ? '+' : ''}${delta}. Current HP: **${newHp}/${character.max_hp}**.`
+  );
+}
+
+async function restCommand(message) {
+  const character = getCharacter(message.guild.id, message.author.id);
+  if (!character) {
+    return message.reply('❌ You have no active character.');
+  }
+
+  const updated = restCharacter(character.id);
+  await message.channel.send(`💤 ${updated.name} is fully rested. HP: **${updated.hp}/${updated.max_hp}**.`);
+}
+
+async function showInventory(message) {
+  const character = getCharacter(message.guild.id, message.author.id);
+  if (!character) {
+    return message.reply('❌ You have no active character.');
+  }
+
+  const { getCharacterInventory } = require('../lib/dnd-characters');
+  const items = getCharacterInventory(character.id);
+  if (items.length === 0) {
+    return message.channel.send('🎒 Inventory is empty.');
+  }
+
+  const text = items
+    .map((i) => `${i.quantity}x **${i.item}**${i.description ? ` — ${i.description}` : ''}`)
+    .join('\n');
+  await message.channel.send(`🎒 **${character.name}'s Inventory**\n${text}`);
+}
+
+async function addItemCommand(message, args, isDm = false) {
+  let character;
+  let targetUser = message.author;
+  let itemArgs = args;
+
+  if (isDm) {
+    const mentioned = message.mentions.users.first();
+    if (mentioned) {
+      targetUser = mentioned;
+      itemArgs = args.filter((a) => !a.startsWith('<@'));
+    }
+  }
+
+  character = getCharacter(message.guild.id, targetUser.id);
+  if (!character) {
+    return message.reply(`❌ ${targetUser} has no active character.`);
+  }
+
+  const quantity = parseInt(itemArgs[0], 10);
+  const hasQuantity = !Number.isNaN(quantity);
+  const itemName = hasQuantity ? itemArgs.slice(1).join(' ') : itemArgs.join(' ');
+  const qty = hasQuantity ? quantity : 1;
+
+  if (!itemName) {
+    return message.reply('❌ Usage: `!dnd add [qty] <item name>`.');
+  }
+
+  addInventoryItem(character.id, itemName, qty);
+  await message.channel.send(`🎒 Added ${qty}x **${itemName}** to ${character.name}.`);
+}
+
+async function removeItemCommand(message, args) {
+  const character = getCharacter(message.guild.id, message.author.id);
+  if (!character) {
+    return message.reply('❌ You have no active character.');
+  }
+
+  const quantity = parseInt(args[0], 10);
+  const hasQuantity = !Number.isNaN(quantity);
+  const itemName = hasQuantity ? args.slice(1).join(' ') : args.join(' ');
+  const qty = hasQuantity ? quantity : 1;
+
+  if (!itemName) {
+    return message.reply('❌ Usage: `!dnd remove [qty] <item name>`.');
+  }
+
+  const success = removeInventoryItem(character.id, itemName, qty);
+  if (!success) {
+    return message.reply(`❌ ${character.name} doesn't have **${itemName}**.`);
+  }
+  await message.channel.send(`🎒 Removed ${qty}x **${itemName}** from ${character.name}.`);
+}
+
+async function showSpells(message) {
+  const character = getCharacter(message.guild.id, message.author.id);
+  if (!character) {
+    return message.reply('❌ You have no active character.');
+  }
+
+  const { getCharacterSpells } = require('../lib/dnd-characters');
+  const spells = getCharacterSpells(character.id);
+  if (spells.length === 0) {
+    return message.channel.send('📖 No spells known.');
+  }
+
+  const text = spells
+    .map((s) => `${s.name} (level ${s.level})${s.prepared ? ' [prepared]' : ''}${s.uses_left !== null ? ` — ${s.uses_left} left` : ''}`)
+    .join('\n');
+  await message.channel.send(`📖 **${character.name}'s Spells**\n${text}`);
+}
+
+async function castSpellCommand(message, args) {
+  const character = getCharacter(message.guild.id, message.author.id);
+  if (!character) {
+    return message.reply('❌ You have no active character.');
+  }
+
+  const spellName = args.join(' ');
+  if (!spellName) {
+    return message.reply('❌ Usage: `!dnd cast <spell name>`.');
+  }
+
+  const result = castSpell(character.id, spellName);
+  if (!result.success) {
+    return message.reply(`❌ ${result.error}`);
+  }
+
+  await message.channel.send(`✨ ${character.name} casts **${result.spell.name}**!`);
+}
+
+async function adminHeal(message, args) {
+  if (!isAdmin(message)) {
+    return message.reply('❌ Only server administrators can use this command.');
+  }
+
+  const mentioned = message.mentions.users.first();
+  const amountArg = args.find((a) => a.startsWith('+') || a.startsWith('-') || !Number.isNaN(parseInt(a, 10)));
+  const amount = amountArg === 'max' ? Infinity : parseInt(amountArg, 10);
+
+  const targetUser = mentioned || message.author;
+  const character = getCharacter(message.guild.id, targetUser.id);
+  if (!character) {
+    return message.reply(`❌ ${targetUser} has no active character.`);
+  }
+
+  let delta;
+  if (amountArg === 'max') {
+    delta = character.max_hp - character.hp;
+  } else {
+    delta = amount;
+  }
+
+  if (Number.isNaN(delta)) {
+    return message.reply('❌ Usage: `!dnd heal <@user> <+amount|max>`.');
+  }
+
+  const newHp = adjustHp(character.id, delta);
+  await message.channel.send(`💚 ${character.name} healed ${delta}. Current HP: **${newHp}/${character.max_hp}**.`);
+}
+
+async function adminDamage(message, args) {
+  if (!isAdmin(message)) {
+    return message.reply('❌ Only server administrators can use this command.');
+  }
+
+  const mentioned = message.mentions.users.first();
+  const amountArg = args.find((a) => !isNaN(parseInt(a, 10)));
+  const amount = parseInt(amountArg, 10);
+
+  const targetUser = mentioned || message.author;
+  const character = getCharacter(message.guild.id, targetUser.id);
+  if (!character) {
+    return message.reply(`❌ ${targetUser} has no active character.`);
+  }
+
+  if (Number.isNaN(amount) || amount <= 0) {
+    return message.reply('❌ Usage: `!dnd damage <@user> <amount>`.');
+  }
+
+  const newHp = adjustHp(character.id, -amount);
+  await message.channel.send(`💔 ${character.name} takes ${amount} damage. Current HP: **${newHp}/${character.max_hp}**.`);
+}
+
+async function adminLevelUp(message, args) {
+  if (!isAdmin(message)) {
+    return message.reply('❌ Only server administrators can use this command.');
+  }
+
+  const mentioned = message.mentions.users.first();
+  const targetUser = mentioned || message.author;
+  const character = getCharacter(message.guild.id, targetUser.id);
+  if (!character) {
+    return message.reply(`❌ ${targetUser} has no active character.`);
+  }
+
+  // For now, level up requires manual XP management; this command just marks intent.
+  // Full implementation would recalculate stats, HP, saves, BAB and skill points.
+  await message.channel.send(`📈 Level-up for **${character.name}** is not fully automated yet. Use \`!dnd setxp\` to set XP and the DM should adjust HP/saves manually.`);
+}
+
+async function adminSetXp(message, args) {
+  if (!isAdmin(message)) {
+    return message.reply('❌ Only server administrators can use this command.');
+  }
+
+  const mentioned = message.mentions.users.first();
+  const xpArg = args.find((a) => !isNaN(parseInt(a, 10)));
+  const xp = parseInt(xpArg, 10);
+
+  const targetUser = mentioned || message.author;
+  const character = getCharacter(message.guild.id, targetUser.id);
+  if (!character) {
+    return message.reply(`❌ ${targetUser} has no active character.`);
+  }
+
+  if (Number.isNaN(xp) || xp < 0) {
+    return message.reply('❌ Usage: `!dnd setxp <@user> <xp>`.');
+  }
+
+  const newXp = addXp(character.id, xp - character.xp);
+  await message.channel.send(`✨ ${character.name} XP set to **${newXp.toLocaleString()}**.`);
+}
+
+async function adminAddSpell(message, args) {
+  if (!isAdmin(message)) {
+    return message.reply('❌ Only server administrators can use this command.');
+  }
+
+  const mentioned = message.mentions.users.first();
+  const targetUser = mentioned || message.author;
+  const character = getCharacter(message.guild.id, targetUser.id);
+  if (!character) {
+    return message.reply(`❌ ${targetUser} has no active character.`);
+  }
+
+  // Parse: !dnd give-spell @user "Fireball" 3
+  const spellArgs = args.filter((a) => !a.startsWith('<@'));
+  const level = parseInt(spellArgs[spellArgs.length - 1], 10);
+  const spellName = Number.isNaN(level) ? spellArgs.join(' ') : spellArgs.slice(0, -1).join(' ');
+  const spellLevel = Number.isNaN(level) ? 0 : level;
+
+  if (!spellName) {
+    return message.reply('❌ Usage: `!dnd give-spell <@user> <spell name> [level]`.');
+  }
+
+  addSpell(character.id, spellName, spellLevel, true);
+  await message.channel.send(`📖 ${character.name} learned **${spellName}** (level ${spellLevel}).`);
+}
+
+async function adminReset(message) {
+  if (!isAdmin(message)) {
+    return message.reply('❌ Only server administrators can use this command.');
+  }
+
+  // Delete the active character of the command author or mentioned user.
+  const mentioned = message.mentions.users.first();
+  const targetUser = mentioned || message.author;
+  const character = getCharacter(message.guild.id, targetUser.id);
+  if (!character) {
+    return message.reply(`❌ ${targetUser} has no active character.`);
+  }
+
+  db.prepare("UPDATE dnd_characters SET status = 'retired' WHERE id = ?").run(character.id);
+  await message.channel.send(`🗑️ ${character.name} has been retired. ${targetUser} can create a new character.`);
+}
+
+module.exports = {
+  name: 'dnd',
+  description: 'D&D 3.5e character system. Use !dnd create to start.',
+  async execute(message, args) {
+    const subcommand = args.shift()?.toLowerCase();
+
+    switch (subcommand) {
+      case 'create':
+        await startCreate(message, args);
+        break;
+      case 'assign':
+        await handleCreateStep(message, args);
+        break;
+      case 'sheet':
+        await showSheet(message);
+        break;
+      case 'roll':
+        await rollAbility(message, args);
+        break;
+      case 'attack':
+        await rollAttack(message);
+        break;
+      case 'save':
+        await rollSave(message, args);
+        break;
+      case 'skill':
+        await rollSkill(message, args);
+        break;
+      case 'skills':
+        await showSkillsList(message);
+        break;
+      case 'hp':
+        await adjustHpCommand(message, args);
+        break;
+      case 'rest':
+        await restCommand(message);
+        break;
+      case 'inventory':
+      case 'inv':
+        await showInventory(message);
+        break;
+      case 'add':
+        await addItemCommand(message, args, false);
+        break;
+      case 'remove':
+        await removeItemCommand(message, args);
+        break;
+      case 'give':
+        await addItemCommand(message, args, true);
+        break;
+      case 'spells':
+        await showSpells(message);
+        break;
+      case 'cast':
+        await castSpellCommand(message, args);
+        break;
+      case 'give-spell':
+        await adminAddSpell(message, args);
+        break;
+      case 'classes':
+        await message.channel.send(`**Available classes**\n${classListText()}`);
+        break;
+      case 'races':
+        await message.channel.send(`**Available races**\n${raceListText()}`);
+        break;
+      case 'alignments':
+        await message.channel.send(`**Available alignments**\n${alignmentListText()}`);
+        break;
+      case 'heal':
+        await adminHeal(message, args);
+        break;
+      case 'damage':
+        await adminDamage(message, args);
+        break;
+      case 'levelup':
+        await adminLevelUp(message, args);
+        break;
+      case 'setxp':
+        await adminSetXp(message, args);
+        break;
+      case 'retire':
+      case 'reset':
+        await adminReset(message);
+        break;
+      default:
+        await message.reply(
+          '❌ Unknown D&D command. Available: `create`, `assign`, `sheet`, `roll`, `attack`, `save`, `skill`, `skills`, `hp`, `rest`, `inventory`, `add`, `remove`, `spells`, `cast`, `classes`, `races`.\n' +
+          'Admin: `heal`, `damage`, `give`, `give-spell`, `setxp`, `retire`.'
+        );
+    }
+  },
+};

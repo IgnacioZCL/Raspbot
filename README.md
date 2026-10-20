@@ -18,6 +18,26 @@ A simple, self-hosted Discord music bot for Raspberry Pi. No subscription servic
 ### Fun
 - `!dice [faces]` — roll a die with the given number of faces (default 6)
 
+### D&D 3.5e
+- `!dnd create <name> <race> <class>` — create a character in this server
+- `!dnd assign str=14 dex=12 ...` — assign stats during creation
+- `!dnd sheet` — show your character sheet
+- `!dnd roll <str|dex|con|int|wis|cha>` — roll a d20 + ability modifier
+- `!dnd attack` — roll an attack
+- `!dnd save <fort|ref|will>` — roll a saving throw
+- `!dnd skill <skill name>` — roll a skill check
+- `!dnd skills` — list available skills
+- `!dnd hp <+/-amount>` — adjust your HP
+- `!dnd rest` — recover HP and spell slots
+- `!dnd inventory` — show inventory
+- `!dnd add [qty] <item>` — add item
+- `!dnd remove [qty] <item>` — remove item
+- `!dnd spells` — list known spells
+- `!dnd cast <spell name>` — cast a spell
+- `!dnd classes` / `!dnd races` — list options
+
+Admin commands: `!dnd heal`, `!dnd damage`, `!dnd give`, `!dnd give-spell`, `!dnd setxp`, `!dnd retire`.
+
 ### Games
 - `!blackjack <bet>` — play blackjack (min bet $100, split allowed)
 
