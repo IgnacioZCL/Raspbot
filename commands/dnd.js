@@ -12,6 +12,16 @@ const {
 } = require('../lib/dnd-characters');
 
 const pendingCreations = new Map();
+const DND_CHANNEL_NAME = 'dnd-kirk';
+
+function isDndChannel(message) {
+  if (!message.guild) return true; // Allow DMs.
+  const channelName = message.channel.name;
+  if (channelName !== DND_CHANNEL_NAME) {
+    return false;
+  }
+  return true;
+}
 
 function raceListText() {
   return Object.entries(RACES)
@@ -577,6 +587,10 @@ module.exports = {
   name: 'dnd',
   description: 'D&D 3.5e character system. Use !dnd create to start.',
   async execute(message, args) {
+    if (!isDndChannel(message)) {
+      return message.reply(`🛡️ D&D commands can only be used in #${DND_CHANNEL_NAME}.`);
+    }
+
     const subcommand = args.shift()?.toLowerCase();
 
     switch (subcommand) {
