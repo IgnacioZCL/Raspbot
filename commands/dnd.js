@@ -55,6 +55,71 @@ function isAdmin(message) {
   return message.member?.permissions?.has('Administrator') || false;
 }
 
+async function showHelp(message) {
+  const key = `${message.guild.id}-${message.author.id}`;
+  const session = pendingCreations.get(key);
+
+  if (session) {
+    let text = `🛡️ **Character creation in progress: ${session.name}**\n`;
+
+    switch (session.step) {
+      case 'choose-method':
+        text += 'You need to choose a stat generation method.\n';
+        text += 'Reply: `!dnd assign 4d6` or `!dnd assign pointbuy`.';
+        break;
+      case 'free-bonus':
+        text += `You chose ${session.method === '4d6-drop' ? '4d6 drop lowest' : 'point-buy 25'}.\n`;
+        text += `As a ${RACES[session.raceKey].name}, pick one ability for your +2 racial bonus.\n`;
+        text += `Reply: \`!dnd assign ${ABILITY_NAMES.join('|')}\`.`;
+        break;
+      case 'assign-4d6':
+        text += 'Assign your rolled stats to abilities.\n';
+        text += `Rolled values: **${session.rolledStats.join(', ')}**\n`;
+        text += 'Use each value exactly once. Example:\n';
+        text += '\`!dnd assign str=15 dex=12 con=14 int=10 wis=13 cha=8\`';
+        break;
+      case 'assign-pointbuy':
+        text += 'Assign your stats with point-buy 25 (each score 8-18).\n';
+        text += 'Example: \`!dnd assign str=14 dex=12 con=13 int=10 wis=12 cha=8\`\n';
+        text += 'Cost table: 8=0, 9=1, 10=2, 11=3, 12=4, 13=5, 14=6, 15=8, 16=10, 17=13, 18=16.';
+        break;
+      default:
+        text += 'Unknown creation step. Try `!dnd help` again or restart with `!dnd create`.';
+    }
+
+    await message.channel.send(text);
+    return;
+  }
+
+  const character = getCharacter(message.guild.id, message.author.id);
+
+  if (!character) {
+    let text = '🛡️ **No active character.**\n';
+    text += 'Start with: \`!dnd create <name> <race> <class>\`\n';
+    text += 'See options with \`!dnd races\` and \`!dnd classes\`.\n\n';
+    text += '**Quick example:**\n';
+    text += '\`!dnd create Conan human fighter\`\n';
+    text += 'Then \`!dnd help\` will guide you through the next step.';
+    await message.channel.send(text);
+    return;
+  }
+
+  let text = `🛡️ **Active character: ${character.name}** (${character.race} ${character.class} ${character.level})\n`;
+  text += '**What you can do next:**\n';
+  text += '- \`!dnd sheet\` — view your full character sheet\n';
+  text += '- \`!dnd roll <str|dex|con|int|wis|cha>\` — ability check\n';
+  text += '- \`!dnd attack\` — attack roll\n';
+  text += '- \`!dnd save <fort|ref|will>\` — saving throw\n';
+  text += '- \`!dnd skill <skill name>\` — skill check (use \`!dnd skills\` to list)\n';
+  text += '- \`!dnd hp +5\` / \`!dnd hp -10\` — adjust HP\n';
+  text += '- \`!dnd rest\` — recover HP\n';
+  text += '- \`!dnd inventory\` / \`!dnd add [qty] <item>\` / \`!dnd remove [qty] <item>\`\n';
+  text += '- \`!dnd spells\` / \`!dnd cast <spell>\`\n';
+  text += '- \`!dnd help\` — show this message again';
+
+  await message.channel.send(text);
+}
+
 async function startCreate(message, args) {
   const [name, raceKey, classKey] = args;
 
@@ -655,6 +720,9 @@ module.exports = {
       case 'alignments':
         await message.channel.send(`**Available alignments**\n${alignmentListText()}`);
         break;
+      case 'help':
+        await showHelp(message);
+        break;
       case 'heal':
         await adminHeal(message, args);
         break;
@@ -673,7 +741,7 @@ module.exports = {
         break;
       default:
         await message.reply(
-          '❌ Unknown D&D command. Available: `create`, `assign`, `sheet`, `roll`, `attack`, `save`, `skill`, `skills`, `hp`, `rest`, `inventory`, `add`, `remove`, `spells`, `cast`, `classes`, `races`.\n' +
+          '❌ Unknown D&D command. Available: `create`, `assign`, `sheet`, `roll`, `attack`, `save`, `skill`, `skills`, `hp`, `rest`, `inventory`, `add`, `remove`, `spells`, `cast`, `classes`, `races`, `help`.\n' +
           'Admin: `heal`, `damage`, `give`, `give-spell`, `setxp`, `retire`.'
         );
     }
