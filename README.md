@@ -34,6 +34,7 @@ A simple, self-hosted Discord music bot for Raspberry Pi. No subscription servic
 - `!dnd remove [qty] <item>` — remove item
 - `!dnd spells` — list known spells
 - `!dnd cast <spell name>` — cast a spell
+- `!dnd dc <spell-level>` — show your spell save DC (for casters)
 - `!dnd classes` / `!dnd races` — list options
 
 Party and encounters:
@@ -43,11 +44,13 @@ Party and encounters:
 - `!dnd party status` — show party members
 - `!dnd party list` — list active parties
 - `!dnd party disband` — disband your party (leader only)
-- `!dnd monsters [easy|medium|hard|boss]` — list available monsters
-- `!dnd encounter <monster-key>` — start a fight in the channel
+- `!dnd monsters [easy|medium|hard|boss]` — list available monsters with their CR
+- `!dnd encounter <monster-key>` — start a fight; shows CR, EL and encounter difficulty vs the party
 - `!dnd attack-monster` — attack the active encounter
 - `!dnd monster-status` — show encounter health and participants
 - `!dnd end-encounter` — end the encounter (admin only)
+
+**Encounter math:** each monster has a **Challenge Rating (CR)**. The bot computes an **Encounter Level (EL)** from the monster(s) and compares it to the party's average level to label the fight (Very Easy → Deadly). When multiple players defeat a monster, XP is split and boosted by 15%.
 
 Admin commands: `!dnd heal`, `!dnd damage`, `!dnd give`, `!dnd give-spell`, `!dnd setxp`, `!dnd retire`.
 

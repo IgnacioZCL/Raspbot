@@ -3,7 +3,7 @@ const {
 } = require('../lib/dnd-data');
 const {
   abilityModifier, formatModifier, d20Roll, formatD20Roll,
-  roll4d6DropLowest, validatePointBuy25,
+  roll4d6DropLowest, validatePointBuy25, calculateSpellDc,
 } = require('../lib/dnd-rules');
 const {
   getCharacter, createCharacter, formatFullSheet, addInventoryItem,
@@ -125,7 +125,7 @@ async function showHelp(message) {
   text += '- \`!dnd hp +5\` / \`!dnd hp -10\` — adjust HP\n';
   text += '- \`!dnd rest\` — recover HP\n';
   text += '- \`!dnd inventory\` / \`!dnd add [qty] <item>\` / \`!dnd remove [qty] <item>\`\n';
-  text += '- \`!dnd spells\` / \`!dnd cast <spell>\`\n';
+  text += '- \`!dnd spells\` / \`!dnd cast <spell>\` / \`!dnd dc <level>\`\n';
   text += '- \`!dnd party create <name>\` / \`!dnd party join <id>\` / \`!dnd party status\`\n';
   text += '- \`!dnd encounter <monster>\` / \`!dnd attack-monster\` / \`!dnd monster-status\`\n';
   text += '- \`!dnd help\` — show this message again';
@@ -553,6 +553,25 @@ async function castSpellCommand(message, args) {
   await message.channel.send(`✨ ${character.name} casts **${result.spell.name}**!`);
 }
 
+async function spellDcCommand(message, args) {
+  const character = getCharacter(message.guild.id, message.author.id);
+  if (!character) {
+    return message.reply('❌ You have no active character.');
+  }
+
+  const spellLevel = parseInt(args[0], 10);
+  if (Number.isNaN(spellLevel) || spellLevel < 0 || spellLevel > 9) {
+    return message.reply('❌ Usage: `!dnd dc <spell-level 0-9>`.');
+  }
+
+  try {
+    const dc = calculateSpellDc(character, spellLevel);
+    await message.channel.send(`🎯 ${character.name}'s spell DC for level ${spellLevel} spells is **${dc}**.`);
+  } catch (error) {
+    await message.reply(`❌ ${error.message}`);
+  }
+}
+
 async function adminHeal(message, args) {
   if (!isAdmin(message)) {
     return message.reply('❌ Only server administrators can use this command.');
@@ -781,14 +800,20 @@ async function encounterStart(message, args) {
   const partyId = party?.id || null;
 
   try {
-    const encounter = startEncounter(message.guild.id, message.channel.id, partyId, monsterKey);
+    const {
+      encounter, partyLevel, encounterLevel, difficultyLabel,
+    } = startEncounter(message.guild.id, message.channel.id, partyId, monsterKey);
     const monster = getMonster(monsterKey);
-    await message.channel.send(
-      `👹 **${encounter.monster_name}** appears!\n` +
-      `${monster.description}\n` +
-      `HP: **${encounter.monster_hp}/${encounter.monster_max_hp}** | AC: **${encounter.monster_ac}** | XP: **${encounter.monster_xp}**\n` +
-      `Attack with \`!dnd attack-monster\`. Check status with \`!dnd monster-status\`.`
-    );
+
+    let text = `👹 **${encounter.monster_name}** appears!\n`;
+    text += `${monster.description}\n`;
+    text += `CR: **${monster.cr}** | HP: **${encounter.monster_hp}/${encounter.monster_max_hp}** | AC: **${encounter.monster_ac}** | XP: **${encounter.monster_xp}**\n`;
+    if (partyLevel > 0) {
+      text += `Encounter Level: **${encounterLevel}** vs party level **${partyLevel}** — ${difficultyLabel}\n`;
+    }
+    text += `Attack with \`!dnd attack-monster\`. Check status with \`!dnd monster-status\`.`;
+
+    await message.channel.send(text);
   } catch (error) {
     await message.reply(`❌ ${error.message}`);
   }
@@ -862,9 +887,11 @@ async function listMonstersCommand(message, args) {
   const difficulty = args[0]?.toLowerCase();
   const validDifficulties = ['easy', 'medium', 'hard', 'boss'];
 
+  const formatCr = (cr) => (cr < 1 ? `1/${Math.round(1 / cr)}` : cr.toString());
+
   if (difficulty && validDifficulties.includes(difficulty)) {
     const monsters = listByDifficulty(difficulty);
-    const lines = monsters.map((m) => `- \`${m.key}\`: ${m.name} (HP ${m.hp}, AC ${m.ac}, XP ${m.xp})`);
+    const lines = monsters.map((m) => `- \`${m.key}\`: ${m.name} (CR ${formatCr(m.cr)}, HP ${m.hp}, AC ${m.ac}, XP ${m.xp})`);
     await message.channel.send(`👹 **${difficulty[0].toUpperCase() + difficulty.slice(1)} monsters**\n${lines.join('\n')}`);
     return;
   }
@@ -872,7 +899,7 @@ async function listMonstersCommand(message, args) {
   const allLines = validDifficulties.map((d) => {
     const monsters = listByDifficulty(d);
     const header = `${d[0].toUpperCase() + d.slice(1)} (${monsters.length})`;
-    const lines = monsters.map((m) => `- \`${m.key}\`: ${m.name}`);
+    const lines = monsters.map((m) => `- \`${m.key}\`: ${m.name} (CR ${formatCr(m.cr)})`);
     return `**${header}**\n${lines.join('\n')}`;
   });
 
@@ -939,6 +966,9 @@ module.exports = {
       case 'cast':
         await castSpellCommand(message, args);
         break;
+      case 'dc':
+        await spellDcCommand(message, args);
+        break;
       case 'give-spell':
         await adminAddSpell(message, args);
         break;
@@ -990,7 +1020,7 @@ module.exports = {
         break;
       default:
         await message.reply(
-          '❌ Unknown D&D command. Available: `create`, `assign`, `sheet`, `roll`, `attack`, `save`, `skill`, `skills`, `hp`, `rest`, `inventory`, `add`, `remove`, `spells`, `cast`, `classes`, `races`, `help`.\n' +
+          '❌ Unknown D&D command. Available: `create`, `assign`, `sheet`, `roll`, `attack`, `save`, `skill`, `skills`, `hp`, `rest`, `inventory`, `add`, `remove`, `spells`, `cast`, `dc`, `classes`, `races`, `help`.\n' +
           'Party: `party create|join|leave|status|list|disband`. Encounters: `encounter <monster>`, `attack-monster`, `monster-status`, `end-encounter`, `monsters`.\n' +
           'Admin: `heal`, `damage`, `give`, `give-spell`, `setxp`, `retire`.'
         );
