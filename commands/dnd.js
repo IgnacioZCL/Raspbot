@@ -811,17 +811,13 @@ async function attackMonsterCommand(message) {
   await message.channel.send(text);
 
   if (result.defeated) {
-    const encounter = getActiveEncounter(message.guild.id, message.channel.id);
-    const participants = getEncounterParticipants(encounter?.id || 0);
-    const xpEach = Math.floor(encounter.monster_xp / Math.max(1, participants.length));
-    const awarded = participants.map((p) => {
-      const char = getCharacter(message.guild.id, p.user_id);
-      return char ? `${char.name}: +${xpEach} XP` : `<@${p.user_id}>: +${xpEach} XP`;
-    });
+    const awarded = result.awarded || [];
+    const lines = awarded.map((a) => `- ${a.name}: +${a.xp} XP (total ${a.totalXp.toLocaleString()})`);
 
     await message.channel.send(
       `🎉 **${result.monsterName} is defeated!**\n` +
-      `XP awarded:\n${awarded.join('\n')}`
+      (awarded.length > 1 ? 'Party bonus applied. ' : '') +
+      `XP awarded:\n${lines.join('\n') || 'No participants to reward.'}`
     );
   }
 }
