@@ -869,7 +869,7 @@ async function attackMonsterCommand(message) {
   text += ': ';
 
   if (!result.hit) {
-    text += `missed (rolled **${result.attackRoll.total}** vs AC ${result.monster_ac}).`;
+    text += `missed (rolled **${result.attackRoll.total}** vs AC **${result.monsterAc ?? result.monster_ac}**).`;
   } else {
     text += `hit for **${result.damage}** damage!\n`;
     if (result.slotDefeated) {
