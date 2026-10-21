@@ -1,12 +1,27 @@
 #!/bin/bash
 set -e
 
+echo "[entrypoint] Starting RaspBot container..."
+echo "[entrypoint] Running as user: $(id -un) ($(id -u))"
+
+# Verify gosu is available.
+if ! command -v gosu > /dev/null 2>&1; then
+  echo "[entrypoint] ERROR: gosu not found. Falling back to running as current user."
+  exec node index.js
+fi
+
 # The container starts as root so it can fix permissions on the host-mounted volume.
 mkdir -p /app/data
-chown -R raspbot:raspbot /app/data
+echo "[entrypoint] Fixing ownership of /app/data and /app..."
+chown -R raspbot:raspbot /app/data || true
+chown -R raspbot:raspbot /app || true
 
-# Also ensure the app files are readable by the runtime user.
-chown -R raspbot:raspbot /app
+# Show final permissions for debugging.
+echo "[entrypoint] /app/data owner: $(stat -c '%U:%G' /app/data)"
+if [ -f /app/data/economy.db ]; then
+  echo "[entrypoint] /app/data/economy.db owner: $(stat -c '%U:%G' /app/data/economy.db)"
+fi
 
 # Drop to the non-root user before running the bot.
-exec gosu raspbot node index.js
+echo "[entrypoint] Launching bot as raspbot..."
+exec gosu raspbot "$@"
