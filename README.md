@@ -45,12 +45,12 @@ Party and encounters:
 - `!dnd party list` — list active parties
 - `!dnd party disband` — disband your party (leader only)
 - `!dnd monsters [easy|medium|hard|boss]` — list available monsters with their CR
-- `!dnd encounter <monster-key>` — start a fight; shows CR, EL and encounter difficulty vs the party
-- `!dnd attack-monster` — attack the active encounter
-- `!dnd monster-status` — show encounter health and participants
+- `!dnd encounter <monster-key> [count]` — start a fight with 1 or more monsters; shows CR, total EL and difficulty vs the party
+- `!dnd attack-monster` — attack the active encounter (targets the front monster)
+- `!dnd monster-status` — show each monster's HP, EL/CR and participants
 - `!dnd end-encounter` — end the encounter (admin only)
 
-**Encounter math:** each monster has a **Challenge Rating (CR)**. The bot computes an **Encounter Level (EL)** from the monster(s) and compares it to the party's average level to label the fight (Very Easy → Deadly). When multiple players defeat a monster, XP is split and boosted by 15%.
+**Encounter math:** each monster has a **Challenge Rating (CR)**. The bot computes an **Encounter Level (EL)** from all monsters and compares it to the party's average level to label the fight (Very Easy → Deadly). When multiple players defeat the encounter, total XP is split and boosted by 15%.
 
 Admin commands: `!dnd heal`, `!dnd damage`, `!dnd give`, `!dnd give-spell`, `!dnd setxp`, `!dnd retire`.
 

@@ -790,10 +790,14 @@ async function partyList(message) {
   await message.channel.send(`🛡️ **Active parties**\n${lines.join('\n')}`);
 }
 
+const formatCr = (cr) => (cr < 1 ? `1/${Math.round(1 / cr)}` : cr.toString());
+
 async function encounterStart(message, args) {
   const monsterKey = args[0]?.toLowerCase();
+  const monsterCount = parseInt(args[1], 10) || 1;
+
   if (!monsterKey) {
-    return message.reply('❌ Usage: `!dnd encounter <monster-key>`. Use `!dnd monsters` to see keys.');
+    return message.reply('❌ Usage: `!dnd encounter <monster-key> [count]`. Use `!dnd monsters` to see keys.');
   }
 
   const party = getActiveParty(message.guild.id, message.author.id);
@@ -802,15 +806,13 @@ async function encounterStart(message, args) {
   try {
     const {
       encounter, partyLevel, encounterLevel, difficultyLabel,
-    } = startEncounter(message.guild.id, message.channel.id, partyId, monsterKey);
+    } = startEncounter(message.guild.id, message.channel.id, partyId, monsterKey, monsterCount);
     const monster = getMonster(monsterKey);
 
     let text = `👹 **${encounter.monster_name}** appears!\n`;
     text += `${monster.description}\n`;
-    text += `CR: **${monster.cr}** | HP: **${encounter.monster_hp}/${encounter.monster_max_hp}** | AC: **${encounter.monster_ac}** | XP: **${encounter.monster_xp}**\n`;
-    if (partyLevel > 0) {
-      text += `Encounter Level: **${encounterLevel}** vs party level **${partyLevel}** — ${difficultyLabel}\n`;
-    }
+    text += `CR each: **${formatCr(monster.cr)}** | Total HP: **${encounter.monster_hp}/${encounter.monster_max_hp}** | AC: **${encounter.monster_ac}** | Total XP: **${encounter.monster_xp}**\n`;
+    text += `Encounter Level: **${encounterLevel}** vs party level **${partyLevel}** — **${difficultyLabel}**\n`;
     text += `Attack with \`!dnd attack-monster\`. Check status with \`!dnd monster-status\`.`;
 
     await message.channel.send(text);
@@ -825,12 +827,20 @@ async function attackMonsterCommand(message) {
     return message.reply(`❌ ${result.error}`);
   }
 
-  let text = `⚔️ **${result.attacker}** attacks ${result.monsterName}: `;
+  let text = `⚔️ **${result.attacker}** attacks ${result.monsterName}`;
+  if (result.slotIndex !== undefined) {
+    text += ` (${result.slotIndex + 1}/${result.totalSlots || result.slotIndex + 1})`;
+  }
+  text += ': ';
+
   if (!result.hit) {
     text += `missed (rolled **${result.attackRoll.total}** vs AC ${result.monster_ac}).`;
   } else {
     text += `hit for **${result.damage}** damage!\n`;
-    text += `${result.monsterName} HP: **${result.monsterHp}/${result.monsterMaxHp}**`;
+    if (result.slotDefeated) {
+      text += `💀 ${result.monsterName} #${result.slotIndex + 1} falls!\n`;
+    }
+    text += `Encounter HP: **${result.monsterHp}/${result.monsterMaxHp}**`;
   }
 
   await message.channel.send(text);
@@ -840,7 +850,7 @@ async function attackMonsterCommand(message) {
     const lines = awarded.map((a) => `- ${a.name}: +${a.xp} XP (total ${a.totalXp.toLocaleString()})`);
 
     await message.channel.send(
-      `🎉 **${result.monsterName} is defeated!**\n` +
+      `🎉 **All monsters are defeated!**\n` +
       (awarded.length > 1 ? 'Party bonus applied. ' : '') +
       `XP awarded:\n${lines.join('\n') || 'No participants to reward.'}`
     );
@@ -853,7 +863,14 @@ async function monsterStatusCommand(message) {
     return message.reply('❌ There is no active encounter in this channel.');
   }
 
+  const { getEncounterMonsters } = require('../lib/dnd-party');
   const monster = getMonster(encounter.monster_key);
+  const monsters = getEncounterMonsters(encounter.id);
+  const monsterLines = monsters.map((m) => {
+    const marker = m.status === 'alive' ? '🟥' : '💀';
+    return `${marker} ${m.monster_name} #${m.slot_index + 1}: HP ${m.monster_hp}/${m.monster_max_hp}`;
+  });
+
   const participants = getEncounterParticipants(encounter.id);
   const participantLines = participants.map((p) => {
     const char = getCharacter(message.guild.id, p.user_id);
@@ -861,9 +878,9 @@ async function monsterStatusCommand(message) {
   });
 
   await message.channel.send(
-    `👹 **${encounter.monster_name}**\n` +
-    `HP: **${encounter.monster_hp}/${encounter.monster_max_hp}** | AC: **${encounter.monster_ac}**\n` +
+    `👹 **${encounter.monster_name}** — EL **${encounter.encounter_level}** | CR each **${formatCr(encounter.monster_cr)}**\n` +
     `${monster.description}\n\n` +
+    `**Monsters**\n${monsterLines.join('\n')}\n\n` +
     `**Participants**\n${participantLines.join('\n') || 'No attacks yet.'}`
   );
 }
