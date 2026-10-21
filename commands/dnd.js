@@ -14,9 +14,10 @@ const db = require('../lib/db');
 const {
   getActiveParty, getPartyById, getPartyMembers, createParty, joinParty,
   leaveParty, disbandParty, listParties,
-  getActiveEncounter, startEncounter, getEncounterParticipants,
+  getActiveEncounter, getEncounterMonsters, startEncounter, getEncounterParticipants,
   attackMonster, monsterAttack,
 } = require('../lib/dnd-party');
+const { getMonster, pickRandomEncounter } = require('../lib/dnd-monsters');
 
 const pendingCreations = new Map();
 const DND_CHANNEL_NAME = 'dnd-kirk';
