@@ -11,6 +11,12 @@ const {
   logRoll,
 } = require('../lib/dnd-characters');
 const db = require('../lib/db');
+const {
+  getActiveParty, getPartyById, getPartyMembers, createParty, joinParty,
+  leaveParty, disbandParty, listParties,
+  getActiveEncounter, startEncounter, getEncounterParticipants,
+  attackMonster, monsterAttack,
+} = require('../lib/dnd-party');
 
 const pendingCreations = new Map();
 const DND_CHANNEL_NAME = 'dnd-kirk';
@@ -120,6 +126,8 @@ async function showHelp(message) {
   text += '- \`!dnd rest\` — recover HP\n';
   text += '- \`!dnd inventory\` / \`!dnd add [qty] <item>\` / \`!dnd remove [qty] <item>\`\n';
   text += '- \`!dnd spells\` / \`!dnd cast <spell>\`\n';
+  text += '- \`!dnd party create <name>\` / \`!dnd party join <id>\` / \`!dnd party status\`\n';
+  text += '- \`!dnd encounter <monster>\` / \`!dnd attack-monster\` / \`!dnd monster-status\`\n';
   text += '- \`!dnd help\` — show this message again';
 
   await message.channel.send(text);
@@ -682,6 +690,199 @@ async function adminReset(message) {
   await message.channel.send(`🗑️ **${character.name}** has been retired. ${targetUser} can create a new character.`);
 }
 
+// ---------- Party and encounter commands ----------
+
+async function partyCreate(message, args) {
+  const name = args.join(' ').trim();
+  if (!name) {
+    return message.reply('❌ Usage: `!dnd party create <name>`.');
+  }
+
+  try {
+    const party = createParty(message.guild.id, name, message.author.id);
+    await message.channel.send(`🛡️ Party **${party.name}** created! ID: ${party.id}. Others can join with \`!dnd party join ${party.id}\`.`);
+  } catch (error) {
+    await message.reply(`❌ ${error.message}`);
+  }
+}
+
+async function partyJoin(message, args) {
+  const partyId = parseInt(args[0], 10);
+  if (Number.isNaN(partyId)) {
+    return message.reply('❌ Usage: `!dnd party join <party-id>`. Use `!dnd party list` to see IDs.');
+  }
+
+  try {
+    const party = joinParty(partyId, message.author.id);
+    await message.channel.send(`🛡️ You joined party **${party.name}** (ID: ${party.id}).`);
+  } catch (error) {
+    await message.reply(`❌ ${error.message}`);
+  }
+}
+
+async function partyLeave(message) {
+  try {
+    const party = leaveParty(message.guild.id, message.author.id);
+    await message.channel.send(`🛡️ You left party **${party.name}**.`);
+  } catch (error) {
+    await message.reply(`❌ ${error.message}`);
+  }
+}
+
+async function partyDisband(message) {
+  try {
+    const party = disbandParty(message.guild.id, message.author.id);
+    await message.channel.send(`🛡️ Party **${party.name}** has been disbanded.`);
+  } catch (error) {
+    await message.reply(`❌ ${error.message}`);
+  }
+}
+
+async function partyStatus(message) {
+  const party = getActiveParty(message.guild.id, message.author.id);
+  if (!party) {
+    return message.reply('❌ You are not in an active party. Create one with `!dnd party create <name>`.');
+  }
+
+  const members = getPartyMembers(party.id);
+  const lines = await Promise.all(
+    members.map(async (m) => {
+      const char = getCharacter(message.guild.id, m.user_id);
+      const user = await message.client.users.fetch(m.user_id).catch(() => null);
+      const label = char
+        ? `${char.name} (${char.race} ${char.class}) HP ${char.hp}/${char.max_hp}`
+        : 'no character';
+      return `- ${user ? user.toString() : `<@${m.user_id}>`}: ${label}`;
+    })
+  );
+
+  await message.channel.send(
+    `🛡️ **Party: ${party.name}** (ID: ${party.id}, leader <@${party.leader_user_id}>)\n${lines.join('\n')}`
+  );
+}
+
+async function partyList(message) {
+  const parties = listParties(message.guild.id);
+  if (parties.length === 0) {
+    return message.channel.send('🛡️ No active parties in this server.');
+  }
+
+  const lines = parties.map((p) => `• **${p.name}** (ID: ${p.id}, leader <@${p.leader_user_id}>)`);
+  await message.channel.send(`🛡️ **Active parties**\n${lines.join('\n')}`);
+}
+
+async function encounterStart(message, args) {
+  const monsterKey = args[0]?.toLowerCase();
+  if (!monsterKey) {
+    return message.reply('❌ Usage: `!dnd encounter <monster-key>`. Use `!dnd monsters` to see keys.');
+  }
+
+  const party = getActiveParty(message.guild.id, message.author.id);
+  const partyId = party?.id || null;
+
+  try {
+    const encounter = startEncounter(message.guild.id, message.channel.id, partyId, monsterKey);
+    const monster = getMonster(monsterKey);
+    await message.channel.send(
+      `👹 **${encounter.monster_name}** appears!\n` +
+      `${monster.description}\n` +
+      `HP: **${encounter.monster_hp}/${encounter.monster_max_hp}** | AC: **${encounter.monster_ac}** | XP: **${encounter.monster_xp}**\n` +
+      `Attack with \`!dnd attack-monster\`. Check status with \`!dnd monster-status\`.`
+    );
+  } catch (error) {
+    await message.reply(`❌ ${error.message}`);
+  }
+}
+
+async function attackMonsterCommand(message) {
+  const result = attackMonster(message.guild.id, message.channel.id, message.author.id);
+  if (result.error) {
+    return message.reply(`❌ ${result.error}`);
+  }
+
+  let text = `⚔️ **${result.attacker}** attacks ${result.monsterName}: `;
+  if (!result.hit) {
+    text += `missed (rolled **${result.attackRoll.total}** vs AC ${result.monster_ac}).`;
+  } else {
+    text += `hit for **${result.damage}** damage!\n`;
+    text += `${result.monsterName} HP: **${result.monsterHp}/${result.monsterMaxHp}**`;
+  }
+
+  await message.channel.send(text);
+
+  if (result.defeated) {
+    const encounter = getActiveEncounter(message.guild.id, message.channel.id);
+    const participants = getEncounterParticipants(encounter?.id || 0);
+    const xpEach = Math.floor(encounter.monster_xp / Math.max(1, participants.length));
+    const awarded = participants.map((p) => {
+      const char = getCharacter(message.guild.id, p.user_id);
+      return char ? `${char.name}: +${xpEach} XP` : `<@${p.user_id}>: +${xpEach} XP`;
+    });
+
+    await message.channel.send(
+      `🎉 **${result.monsterName} is defeated!**\n` +
+      `XP awarded:\n${awarded.join('\n')}`
+    );
+  }
+}
+
+async function monsterStatusCommand(message) {
+  const encounter = getActiveEncounter(message.guild.id, message.channel.id);
+  if (!encounter) {
+    return message.reply('❌ There is no active encounter in this channel.');
+  }
+
+  const monster = getMonster(encounter.monster_key);
+  const participants = getEncounterParticipants(encounter.id);
+  const participantLines = participants.map((p) => {
+    const char = getCharacter(message.guild.id, p.user_id);
+    return `- ${char ? char.name : `<@${p.user_id}>`}: ${p.damage_dealt} damage`;
+  });
+
+  await message.channel.send(
+    `👹 **${encounter.monster_name}**\n` +
+    `HP: **${encounter.monster_hp}/${encounter.monster_max_hp}** | AC: **${encounter.monster_ac}**\n` +
+    `${monster.description}\n\n` +
+    `**Participants**\n${participantLines.join('\n') || 'No attacks yet.'}`
+  );
+}
+
+async function endEncounterCommand(message) {
+  if (!isAdmin(message)) {
+    return message.reply('❌ Only server administrators can end an encounter.');
+  }
+
+  const encounter = getActiveEncounter(message.guild.id, message.channel.id);
+  if (!encounter) {
+    return message.reply('❌ There is no active encounter in this channel.');
+  }
+
+  db.prepare("UPDATE dnd_encounters SET status = 'ended' WHERE id = ?").run(encounter.id);
+  await message.channel.send(`👹 Encounter against **${encounter.monster_name}** has been ended by the DM.`);
+}
+
+async function listMonstersCommand(message, args) {
+  const { listByDifficulty } = require('../lib/dnd-monsters');
+  const difficulty = args[0]?.toLowerCase();
+  const validDifficulties = ['easy', 'medium', 'hard', 'boss'];
+
+  if (difficulty && validDifficulties.includes(difficulty)) {
+    const monsters = listByDifficulty(difficulty);
+    const lines = monsters.map((m) => `- \`${m.key}\`: ${m.name} (HP ${m.hp}, AC ${m.ac}, XP ${m.xp})`);
+    await message.channel.send(`👹 **${difficulty[0].toUpperCase() + difficulty.slice(1)} monsters**\n${lines.join('\n')}`);
+    return;
+  }
+
+  const allLines = validDifficulties.map((d) => {
+    const monsters = listByDifficulty(d);
+    const header = `${d[0].toUpperCase() + d.slice(1)} (${monsters.length})`;
+    const lines = monsters.map((m) => `- \`${m.key}\`: ${m.name}`);
+    return `**${header}**\n${lines.join('\n')}`;
+  });
+
+  await message.channel.send(`👹 **Monster manual**\n${allLines.join('\n\n')}\n\nUse \`!dnd monsters <easy|medium|hard|boss>\` for details.`);
+}
+
 module.exports = {
   name: 'dnd',
   description: 'D&D 3.5e character system. Use !dnd create to start.',
@@ -745,6 +946,24 @@ module.exports = {
       case 'give-spell':
         await adminAddSpell(message, args);
         break;
+      case 'party':
+        await handlePartySubcommand(message, args);
+        break;
+      case 'encounter':
+        await encounterStart(message, args);
+        break;
+      case 'attack-monster':
+        await attackMonsterCommand(message);
+        break;
+      case 'monster-status':
+        await monsterStatusCommand(message);
+        break;
+      case 'end-encounter':
+        await endEncounterCommand(message);
+        break;
+      case 'monsters':
+        await listMonstersCommand(message, args);
+        break;
       case 'classes':
         await message.channel.send(`**Available classes**\n${classListText()}`);
         break;
@@ -776,8 +995,37 @@ module.exports = {
       default:
         await message.reply(
           '❌ Unknown D&D command. Available: `create`, `assign`, `sheet`, `roll`, `attack`, `save`, `skill`, `skills`, `hp`, `rest`, `inventory`, `add`, `remove`, `spells`, `cast`, `classes`, `races`, `help`.\n' +
+          'Party: `party create|join|leave|status|list|disband`. Encounters: `encounter <monster>`, `attack-monster`, `monster-status`, `end-encounter`, `monsters`.\n' +
           'Admin: `heal`, `damage`, `give`, `give-spell`, `setxp`, `retire`.'
         );
     }
   },
 };
+
+async function handlePartySubcommand(message, args) {
+  const action = args.shift()?.toLowerCase();
+  switch (action) {
+    case 'create':
+      await partyCreate(message, args);
+      break;
+    case 'join':
+      await partyJoin(message, args);
+      break;
+    case 'leave':
+      await partyLeave(message);
+      break;
+    case 'status':
+      await partyStatus(message);
+      break;
+    case 'list':
+      await partyList(message);
+      break;
+    case 'disband':
+      await partyDisband(message);
+      break;
+    default:
+      await message.reply(
+        '❌ Unknown party command. Use `create`, `join`, `leave`, `status`, `list`, or `disband`.'
+      );
+  }
+}

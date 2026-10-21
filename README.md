@@ -36,6 +36,19 @@ A simple, self-hosted Discord music bot for Raspberry Pi. No subscription servic
 - `!dnd cast <spell name>` — cast a spell
 - `!dnd classes` / `!dnd races` — list options
 
+Party and encounters:
+- `!dnd party create <name>` — create a party
+- `!dnd party join <party-id>` — join a party
+- `!dnd party leave` — leave your party
+- `!dnd party status` — show party members
+- `!dnd party list` — list active parties
+- `!dnd party disband` — disband your party (leader only)
+- `!dnd monsters [easy|medium|hard|boss]` — list available monsters
+- `!dnd encounter <monster-key>` — start a fight in the channel
+- `!dnd attack-monster` — attack the active encounter
+- `!dnd monster-status` — show encounter health and participants
+- `!dnd end-encounter` — end the encounter (admin only)
+
 Admin commands: `!dnd heal`, `!dnd damage`, `!dnd give`, `!dnd give-spell`, `!dnd setxp`, `!dnd retire`.
 
 ### Games
