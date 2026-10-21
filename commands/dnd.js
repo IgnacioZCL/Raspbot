@@ -127,7 +127,7 @@ async function showHelp(message) {
   text += '- \`!dnd inventory\` / \`!dnd add [qty] <item>\` / \`!dnd remove [qty] <item>\`\n';
   text += '- \`!dnd spells\` / \`!dnd cast <spell>\` / \`!dnd dc <level>\`\n';
   text += '- \`!dnd party create <name>\` / \`!dnd party join <id>\` / \`!dnd party status\`\n';
-  text += '- \`!dnd encounter <monster>\` / \`!dnd attack-monster\` / \`!dnd monster-status\`\n';
+  text += '- \`!dnd encounter\` / \`!dnd encounter <monster> [count]\` / \`!dnd attack-monster\` / \`!dnd monster-status\`\n';
   text += '- \`!dnd help\` — show this message again';
 
   await message.channel.send(text);
@@ -794,25 +794,59 @@ const formatCr = (cr) => (cr < 1 ? `1/${Math.round(1 / cr)}` : cr.toString());
 
 async function encounterStart(message, args) {
   const monsterKey = args[0]?.toLowerCase();
-  const monsterCount = parseInt(args[1], 10) || 1;
-
-  if (!monsterKey) {
-    return message.reply('❌ Usage: `!dnd encounter <monster-key> [count]`. Use `!dnd monsters` to see keys.');
-  }
+  const monsterCount = parseInt(args[1], 10) || null;
 
   const party = getActiveParty(message.guild.id, message.author.id);
   const partyId = party?.id || null;
 
+  // Gather party level for random or fixed encounters.
+  const partyLevels = [];
+  if (partyId) {
+    const members = getPartyMembers(partyId);
+    for (const member of members) {
+      const char = getCharacter(message.guild.id, member.user_id);
+      if (char) partyLevels.push(char.level);
+    }
+  }
+  // Solo player can still trigger a scaled random encounter.
+  if (partyLevels.length === 0) {
+    const soloChar = getCharacter(message.guild.id, message.author.id);
+    if (soloChar) partyLevels.push(soloChar.level);
+  }
+  const partyLevel = partyLevels.length > 0
+    ? Math.round(partyLevels.reduce((a, b) => a + b, 0) / partyLevels.length)
+    : 1;
+
+  // Random encounter when no monster key is given.
+  if (!monsterKey) {
+    const { pickRandomEncounter } = require('../lib/dnd-monsters');
+    const chosen = pickRandomEncounter(partyLevel);
+    return runEncounter(message, partyId, chosen.monster.key, chosen.count, chosen.el, chosen.difficulty, true);
+  }
+
+  // Fixed encounter: optional count, otherwise default 1.
+  const fixedCount = monsterCount && monsterCount >= 1 && monsterCount <= 20 ? monsterCount : 1;
+  return runEncounter(message, partyId, monsterKey, fixedCount, null, null, false);
+}
+
+async function runEncounter(message, partyId, monsterKey, monsterCount, precomputedEl, precomputedDifficulty, isRandom) {
   try {
     const {
       encounter, partyLevel, encounterLevel, difficultyLabel,
     } = startEncounter(message.guild.id, message.channel.id, partyId, monsterKey, monsterCount);
     const monster = getMonster(monsterKey);
 
-    let text = `👹 **${encounter.monster_name}** appears!\n`;
+    const el = precomputedEl ?? encounterLevel;
+    const difficulty = precomputedDifficulty ?? difficultyLabel;
+
+    let text = '';
+    if (isRandom) {
+      text += `🎲 **Random encounter!**\n`;
+    }
+    text += `👹 **${encounter.monster_name}** appears!\n`;
     text += `${monster.description}\n`;
     text += `CR each: **${formatCr(monster.cr)}** | Total HP: **${encounter.monster_hp}/${encounter.monster_max_hp}** | AC: **${encounter.monster_ac}** | Total XP: **${encounter.monster_xp}**\n`;
-    text += `Encounter Level: **${encounterLevel}** vs party level **${partyLevel}** — **${difficultyLabel}**\n`;
+    text += `Encounter Level: **${el}** vs party level **${partyLevel}** — **${difficulty}**\n`;
     text += `Attack with \`!dnd attack-monster\`. Check status with \`!dnd monster-status\`.`;
 
     await message.channel.send(text);
