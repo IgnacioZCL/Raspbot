@@ -45,13 +45,16 @@ Party and encounters:
 - `!dnd party list` — list active parties
 - `!dnd party disband` — disband your party (leader only)
 - `!dnd monsters [easy|medium|hard|boss]` — list available monsters with their CR
-- `!dnd encounter` — start a **random encounter scaled to the party**
-- `!dnd encounter <monster-key> [count]` — start a fight with 1 or more monsters; shows CR, total EL and difficulty vs the party
-- `!dnd attack-monster` — attack the active encounter (targets the front monster)
-- `!dnd monster-status` — show each monster's HP, EL/CR and participants
+- `!dnd encounter` — start a **random encounter scaled to your party** (requires an active party)
+- `!dnd encounter <monster-key> [count]` — start a party fight with 1 or more monsters; shows CR, total EL, difficulty and the initiative order
+- `!dnd attack-monster` — attack the active encounter on your turn (targets the front monster); monster turns run automatically afterwards
+- `!dnd monster-status` — show each monster's HP, EL/CR, round, participants and initiative order
+- `!dnd turn-status` — show the current round and whose turn it is
 - `!dnd end-encounter` — end the encounter (admin only)
 
 **Encounter math:** each monster has a **Challenge Rating (CR)**. The bot computes an **Encounter Level (EL)** from all monsters and compares it to the party's average level to label the fight (Very Easy → Deadly). When multiple players defeat the encounter, total XP is split and boosted by 15%. Random encounters keep the EL within ±1 of the party level.
+
+**Turn-based combat:** encounters are now party-only and run on initiative. When the encounter starts, the bot rolls initiative for every party member and monster, then announces the order and the first turn. You can only `!dnd attack-monster` on your turn; after your action the bot automatically resolves any consecutive monster turns and announces the next player turn.
 
 Admin commands: `!dnd heal`, `!dnd damage`, `!dnd give`, `!dnd give-spell`, `!dnd setxp`, `!dnd retire`.
 

@@ -15,6 +15,7 @@ const {
   getActiveParty, getPartyById, getPartyMembers, createParty, joinParty,
   leaveParty, disbandParty, listParties,
   getActiveEncounter, getEncounterMonsters, startEncounter, getEncounterParticipants,
+  getInitiativeOrder, getCurrentActor,
   attackMonster, monsterAttack,
 } = require('../lib/dnd-party');
 const { getMonster, pickRandomEncounter } = require('../lib/dnd-monsters');
@@ -794,25 +795,19 @@ async function partyList(message) {
 const formatCr = (cr) => (cr < 1 ? `1/${Math.round(1 / cr)}` : cr.toString());
 
 async function encounterStart(message, args) {
+  const party = getActiveParty(message.guild.id, message.author.id);
+  if (!party) {
+    return message.reply('❌ You must be in an active party to start an encounter. Create or join one with `!dnd party create <name>` or `!dnd party join <id>`.');
+  }
+
   const monsterKey = args[0]?.toLowerCase();
   const monsterCount = parseInt(args[1], 10) || null;
 
-  const party = getActiveParty(message.guild.id, message.author.id);
-  const partyId = party?.id || null;
-
-  // Gather party level for random or fixed encounters.
+  const members = getPartyMembers(party.id);
   const partyLevels = [];
-  if (partyId) {
-    const members = getPartyMembers(partyId);
-    for (const member of members) {
-      const char = getCharacter(message.guild.id, member.user_id);
-      if (char) partyLevels.push(char.level);
-    }
-  }
-  // Solo player can still trigger a scaled random encounter.
-  if (partyLevels.length === 0) {
-    const soloChar = getCharacter(message.guild.id, message.author.id);
-    if (soloChar) partyLevels.push(soloChar.level);
+  for (const member of members) {
+    const char = getCharacter(message.guild.id, member.user_id);
+    if (char) partyLevels.push(char.level);
   }
   const partyLevel = partyLevels.length > 0
     ? Math.round(partyLevels.reduce((a, b) => a + b, 0) / partyLevels.length)
@@ -822,18 +817,18 @@ async function encounterStart(message, args) {
   if (!monsterKey) {
     const { pickRandomEncounter } = require('../lib/dnd-monsters');
     const chosen = pickRandomEncounter(partyLevel);
-    return runEncounter(message, partyId, chosen.monster.key, chosen.count, chosen.el, chosen.difficulty, true);
+    return runEncounter(message, party.id, chosen.monster.key, chosen.count, chosen.el, chosen.difficulty, true);
   }
 
   // Fixed encounter: optional count, otherwise default 1.
   const fixedCount = monsterCount && monsterCount >= 1 && monsterCount <= 20 ? monsterCount : 1;
-  return runEncounter(message, partyId, monsterKey, fixedCount, null, null, false);
+  return runEncounter(message, party.id, monsterKey, fixedCount, null, null, false);
 }
 
 async function runEncounter(message, partyId, monsterKey, monsterCount, precomputedEl, precomputedDifficulty, isRandom) {
   try {
     const {
-      encounter, partyLevel, encounterLevel, difficultyLabel,
+      encounter, partyLevel, encounterLevel, difficultyLabel, initiative,
     } = startEncounter(message.guild.id, message.channel.id, partyId, monsterKey, monsterCount);
     const monster = getMonster(monsterKey);
 
@@ -847,8 +842,15 @@ async function runEncounter(message, partyId, monsterKey, monsterCount, precompu
     text += `👹 **${encounter.monster_name}** appears!\n`;
     text += `${monster.description}\n`;
     text += `CR each: **${formatCr(monster.cr)}** | Total HP: **${encounter.monster_hp}/${encounter.monster_max_hp}** | AC: **${encounter.monster_ac}** | Total XP: **${encounter.monster_xp}**\n`;
-    text += `Encounter Level: **${el}** vs party level **${partyLevel}** — **${difficulty}**\n`;
-    text += `Attack with \`!dnd attack-monster\`. Check status with \`!dnd monster-status\`.`;
+    text += `Encounter Level: **${el}** vs party level **${partyLevel}** — **${difficulty}**\n\n`;
+
+    const initiativeLines = initiative.map((actor) => {
+      const bonusText = formatModifier(actor.bonus);
+      return `- ${actor.name}: d20 (${actor.die}) ${bonusText} = **${actor.initiative_score}**`;
+    });
+    text += `🎲 **Initiative order**\n${initiativeLines.join('\n')}\n\n`;
+    text += `⏳ **Current turn:** ${initiative[0]?.name || 'unknown'}\n`;
+    text += `Use \`!dnd attack-monster\` on your turn. Check status with \`!dnd monster-status\`.`;
 
     await message.channel.send(text);
   } catch (error) {
@@ -856,9 +858,30 @@ async function runEncounter(message, partyId, monsterKey, monsterCount, precompu
   }
 }
 
+function formatMonsterTurn(turn) {
+  if (turn.summary) return turn.summary;
+  if (turn.error) return `❌ ${turn.error}`;
+
+  let text = `🐾 **${turn.attacker}** attacks ${turn.target}: `;
+  if (!turn.hit) {
+    text += `missed (rolled **${turn.attackRoll.total}** vs AC).`;
+  } else {
+    text += `hit for **${turn.damage}** damage!`;
+    if (turn.defeated) {
+      text += ` 💀 ${turn.target} falls!`;
+    } else {
+      text += ` HP: **${turn.targetHp}/${turn.targetMaxHp}**`;
+    }
+  }
+  return text;
+}
+
 async function attackMonsterCommand(message) {
   const result = attackMonster(message.guild.id, message.channel.id, message.author.id);
   if (result.error) {
+    if (result.currentActor) {
+      return message.reply(`❌ ${result.error}\n⏳ Current turn: **${result.currentActor}**`);
+    }
     return message.reply(`❌ ${result.error}`);
   }
 
@@ -880,6 +903,19 @@ async function attackMonsterCommand(message) {
 
   await message.channel.send(text);
 
+  if (result.monsterTurns && result.monsterTurns.length > 0) {
+    const monsterText = result.monsterTurns.map(formatMonsterTurn).join('\n');
+    await message.channel.send(`🌙 **Monster turns**\n${monsterText}`);
+  }
+
+  const encounter = getActiveEncounter(message.guild.id, message.channel.id);
+  if (encounter) {
+    const current = getCurrentActor(encounter.id);
+    if (current) {
+      await message.channel.send(`⏳ **Current turn:** ${current.name}`);
+    }
+  }
+
   if (result.defeated) {
     const awarded = result.awarded || [];
     const lines = awarded.map((a) => `- ${a.name}: +${a.xp} XP (total ${a.totalXp.toLocaleString()})`);
@@ -890,6 +926,28 @@ async function attackMonsterCommand(message) {
       `XP awarded:\n${lines.join('\n') || 'No participants to reward.'}`
     );
   }
+}
+
+async function turnStatusCommand(message) {
+  const encounter = getActiveEncounter(message.guild.id, message.channel.id);
+  if (!encounter) {
+    return message.reply('❌ There is no active encounter in this channel.');
+  }
+
+  const initiative = getInitiativeOrder(encounter.id);
+  const current = getCurrentActor(encounter.id);
+
+  const lines = initiative.map((a, i) => {
+    const isCurrent = a.actor_type === encounter.current_turn_type && a.actor_id === encounter.current_actor_id;
+    return `${isCurrent ? '➡️' : `${i + 1}.`} ${a.name} (${a.initiative_score})`;
+  });
+
+  let text = `🎲 **Round ${encounter.round}** — Initiative order\n${lines.join('\n')}`;
+  if (current) {
+    text += `\n\n⏳ **Current turn:** ${current.name}`;
+  }
+
+  await message.channel.send(text);
 }
 
 async function monsterStatusCommand(message) {
@@ -912,12 +970,20 @@ async function monsterStatusCommand(message) {
     return `- ${char ? char.name : `<@${p.user_id}>`}: ${p.damage_dealt} damage`;
   });
 
-  await message.channel.send(
-    `👹 **${encounter.monster_name}** — EL **${encounter.encounter_level}** | CR each **${formatCr(encounter.monster_cr)}**\n` +
+  const initiative = getInitiativeOrder(encounter.id);
+  const initiativeLines = initiative.map((a, i) => {
+    const marker = a.actor_type === encounter.current_turn_type && a.actor_id === encounter.current_actor_id ? '➡️' : `${i + 1}.`;
+    return `${marker} ${a.name} (${a.initiative_score})`;
+  });
+
+  let text =
+    `👹 **${encounter.monster_name}** — EL **${encounter.encounter_level}** | CR each **${formatCr(encounter.monster_cr)}** | Round **${encounter.round}**\n` +
     `${monster.description}\n\n` +
     `**Monsters**\n${monsterLines.join('\n')}\n\n` +
-    `**Participants**\n${participantLines.join('\n') || 'No attacks yet.'}`
-  );
+    `**Participants**\n${participantLines.join('\n') || 'No attacks yet.'}\n\n` +
+    `**Initiative order**\n${initiativeLines.join('\n')}`;
+
+  await message.channel.send(text);
 }
 
 async function endEncounterCommand(message) {
@@ -1036,6 +1102,9 @@ module.exports = {
       case 'monster-status':
         await monsterStatusCommand(message);
         break;
+      case 'turn-status':
+        await turnStatusCommand(message);
+        break;
       case 'end-encounter':
         await endEncounterCommand(message);
         break;
@@ -1073,7 +1142,7 @@ module.exports = {
       default:
         await message.reply(
           '❌ Unknown D&D command. Available: `create`, `assign`, `sheet`, `roll`, `attack`, `save`, `skill`, `skills`, `hp`, `rest`, `inventory`, `add`, `remove`, `spells`, `cast`, `dc`, `classes`, `races`, `help`.\n' +
-          'Party: `party create|join|leave|status|list|disband`. Encounters: `encounter <monster>`, `attack-monster`, `monster-status`, `end-encounter`, `monsters`.\n' +
+          'Party: `party create|join|leave|status|list|disband`. Encounters: `encounter [monster] [count]`, `attack-monster`, `monster-status`, `turn-status`, `end-encounter`, `monsters`.\n' +
           'Admin: `heal`, `damage`, `give`, `give-spell`, `setxp`, `retire`.'
         );
     }
