@@ -1,7 +1,7 @@
 {
   "name": "raspbot",
   "version": "1.0.0",
-  "description": "Simple Discord music bot for Raspberry Pi",
+  "description": "Discord music bot for Raspberry Pi",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -11,7 +11,6 @@
     "@discord-player/extractor": "^7.1.0",
     "@discordjs/opus": "^0.10.0",
     "@snazzah/davey": "^0.1.12",
-    "better-sqlite3": "^11.8.1",
     "discord-player": "^7.2.0",
     "discord-player-spotify": "^1.1.9",
     "discord-player-youtube": "^0.9.2",

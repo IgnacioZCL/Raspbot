@@ -1,65 +1,15 @@
 # RaspBot
 
-A simple, self-hosted Discord music bot for Raspberry Pi. No subscription services required — it streams audio from YouTube and Spotify using `discord-player`.
+A self-hosted Discord music bot for Raspberry Pi. Streams audio from YouTube and Spotify using `discord-player`.
 
-## Features
+> **Note:** Economy, gambling, D&D and misc/fun commands have been moved to their own bots (`discord-gambling`, `dnd-discord-bot` and `misc-discord`). This repo now only handles music.
 
-### Music
+## Music commands
+
 - `!play <query>` — search YouTube/Spotify and play/queue audio
 - `!pause` — pause or resume playback
 - `!skip` — skip the current song
 - `!queue` — show the current queue
-
-### Economy
-- `!balance` — check your wallet and next `!claim` availability
-- `!claim` — claim $1000 every hour
-- `!history [limit]` — show your recent transactions
-
-### Fun
-- `!dice [faces]` — roll a die with the given number of faces (default 6)
-
-### D&D 3.5e
-- `!dnd create <name> <race> <class>` — create a character in this server
-- `!dnd assign str=14 dex=12 ...` — assign stats during creation
-- `!dnd sheet` — show your character sheet
-- `!dnd roll <str|dex|con|int|wis|cha>` — roll a d20 + ability modifier
-- `!dnd attack` — roll an attack
-- `!dnd save <fort|ref|will>` — roll a saving throw
-- `!dnd skill <skill name>` — roll a skill check
-- `!dnd skills` — list available skills
-- `!dnd hp <+/-amount>` — adjust your HP
-- `!dnd rest` — recover HP and spell slots
-- `!dnd inventory` — show inventory
-- `!dnd add [qty] <item>` — add item
-- `!dnd remove [qty] <item>` — remove item
-- `!dnd spells` — list known spells
-- `!dnd cast <spell name>` — cast a spell
-- `!dnd dc <spell-level>` — show your spell save DC (for casters)
-- `!dnd classes` / `!dnd races` — list options
-
-Party and encounters:
-- `!dnd party create <name>` — create a party
-- `!dnd party join <party-id>` — join a party
-- `!dnd party leave` — leave your party
-- `!dnd party status` — show party members
-- `!dnd party list` — list active parties
-- `!dnd party disband` — disband your party (leader only)
-- `!dnd monsters [easy|medium|hard|boss]` — list available monsters with their CR
-- `!dnd encounter` — start a **random encounter scaled to your party** (requires an active party)
-- `!dnd encounter <monster-key> [count]` — start a party fight with 1 or more monsters; shows CR, total EL, difficulty and the initiative order
-- `!dnd attack-monster` — attack the active encounter on your turn (targets the front monster); monster turns run automatically afterwards
-- `!dnd monster-status` — show each monster's HP, EL/CR, round, participants and initiative order
-- `!dnd turn-status` — show the current round and whose turn it is
-- `!dnd end-encounter` — end the encounter (admin only)
-
-**Encounter math:** each monster has a **Challenge Rating (CR)**. The bot computes an **Encounter Level (EL)** from all monsters and compares it to the party's average level to label the fight (Very Easy → Deadly). When multiple players defeat the encounter, total XP is split and boosted by 15%. Random encounters keep the EL within ±1 of the party level.
-
-**Turn-based combat:** encounters are now party-only and run on initiative. When the encounter starts, the bot rolls initiative for every party member and monster, then announces the order and the first turn. You can only `!dnd attack-monster` on your turn; after your action the bot automatically resolves any consecutive monster turns and announces the next player turn.
-
-Admin commands: `!dnd heal`, `!dnd damage`, `!dnd give`, `!dnd give-spell`, `!dnd setxp`, `!dnd retire`.
-
-### Games
-- `!blackjack <bet>` — play blackjack (min bet $100, split allowed)
 
 ## Running locally
 
@@ -100,8 +50,7 @@ nano .env
 DISCORD_TOKEN=YOUR_BOT_TOKEN_HERE
 ```
 
-> `.env` is ignored by Git so your token is never published. Keep it only on your Pi.
-> The economy database is stored in `data/economy.db` (also ignored by Git) and mounted as a Docker volume so it persists across container rebuilds.
+> `.env` is ignored by Git so your token is never published.
 
 The optional `config.json` file can still be used for the command prefix (default is `!`).
 

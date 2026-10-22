@@ -3,7 +3,7 @@ const { join } = require('path');
 
 module.exports = {
   name: 'help',
-  description: 'Show the list of available commands',
+  description: 'Show the list of available music commands',
   async execute(message, args, player, prefix) {
     const commandsPath = join(__dirname);
     const commandFiles = readdirSync(commandsPath).filter(file => file.endsWith('.js'));
@@ -16,7 +16,7 @@ module.exports = {
       .filter(cmd => cmd.name && cmd.description)
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    let text = `**Available commands**\n\n`;
+    let text = `🎵 **RaspBot music commands**\n\n`;
     text += commandList
       .map(cmd => `\`${prefix}${cmd.name}\` — ${cmd.description}`)
       .join('\n');

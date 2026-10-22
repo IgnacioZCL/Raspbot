@@ -1,14 +1,13 @@
 FROM node:20-bookworm-slim
 
-# Install ffmpeg, build tools for native Node modules, and gosu to drop privileges.
+# Install ffmpeg and build tools for native Node modules.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ffmpeg \
         python3 \
         make \
         g++ \
-        ca-certificates \
-        gosu && \
+        ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -31,12 +30,7 @@ COPY . .
 # and we don't want platform-specific lockfiles to confuse future builds.
 RUN rm -f package-lock.json
 
-# Ensure the data directory exists at runtime for SQLite and is writable.
-ENV ECONOMY_DB_PATH=/app/data/economy.db
+# Run as the non-root user.
+USER raspbot
 
-# Copy and enable the entrypoint that fixes volume permissions before dropping to raspbot.
-COPY docker-entrypoint.sh /app/docker-entrypoint.sh
-RUN chmod +x /app/docker-entrypoint.sh
-
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["node", "index.js"]
