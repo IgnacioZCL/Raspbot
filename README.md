@@ -7,6 +7,7 @@ A self-hosted Discord music bot for Raspberry Pi. Streams audio from YouTube and
 ## Music commands
 
 - `!play <query>` — search YouTube/Spotify and play/queue audio
+- `!again` — repeat the last song that was played
 - `!pause` — pause or resume playback
 - `!skip` — skip the current song
 - `!queue` — show the current queue

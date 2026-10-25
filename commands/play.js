@@ -41,6 +41,10 @@ module.exports = {
       return message.reply('❌ Give me something to play, e.g. `!play never gonna give you up`');
     }
 
+    // Remember this query so !again can repeat it later
+    if (!player.lastQueries) player.lastQueries = new Map();
+    player.lastQueries.set(message.guild.id, query);
+
     const sourceLabel = isSpotifyUrl(query) ? 'Spotify' : 'YouTube';
     const searchEngine = queryTypeFor(query);
     console.log(`[play] query: ${query}, source: ${sourceLabel}, engine: ${searchEngine}`);

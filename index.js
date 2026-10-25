@@ -73,6 +73,9 @@ const player = new Player(client, {
   useLegacyFFmpeg: false,
 });
 
+// Remember the last played query per guild for the !again command
+player.lastQueries = new Map();
+
 const youtubeCookies = loadYouTubeCookies();
 const youtubeExtractorOptions = youtubeCookies
   ? { cookie: youtubeCookies }
